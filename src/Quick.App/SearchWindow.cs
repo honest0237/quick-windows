@@ -36,7 +36,7 @@ public sealed class SearchWindow : Form
         var header = new Panel { Dock = DockStyle.Fill, BackColor = Theme.HeaderBg };
         var brand = new Label { Text = "Quick", Font = Theme.TitleBig, ForeColor = Color.White, AutoSize = true, Location = new Point(14, 11), BackColor = Color.Transparent };
         var ver = new Label { Text = $"v{UpdateService.CurrentVersion}", Font = Theme.Small, ForeColor = Theme.HeaderSub, AutoSize = true, Location = new Point(74, 18), BackColor = Color.Transparent };
-        var gear = new Button { Text = "⚙", ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 13F), Dock = DockStyle.Right, Width = 46, BackColor = Theme.HeaderBg };
+        var gear = new Button { Text = "⚙", ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = Theme.Icon, Dock = DockStyle.Right, Width = 46, BackColor = Theme.HeaderBg };
         gear.FlatAppearance.BorderSize = 0;
         gear.FlatAppearance.MouseOverBackColor = Color.FromArgb(44, 48, 58);
         gear.Click += (_, _) => { using var f = new SettingsForm(); f.ShowDialog(this); };
@@ -49,7 +49,7 @@ public sealed class SearchWindow : Form
         _search = new TextBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = Theme.Field,
             BorderStyle = BorderStyle.FixedSingle,
             PlaceholderText = "🔍  스크린샷 내용 검색…",
         };
@@ -59,7 +59,7 @@ public sealed class SearchWindow : Form
 
         // ── 카드 목록 ──
         _list = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Theme.Bg };
-        _list.Resize += (_, _) => LayoutCards();
+        _list.ClientSizeChanged += (_, _) => LayoutCards();   // 스크롤바 토글 시에도 폭 재계산(가로스크롤 방지)
         _empty = new Label
         {
             Text = "아직 스크린샷이 없어요.\n\n캡처(Ctrl+Shift+4)하면 여기에 쌓이고,\n내용(글자)으로 검색할 수 있어요.",
@@ -145,7 +145,8 @@ public sealed class SearchWindow : Form
         }
         _empty.Visible = _cards.Count == 0;
         LayoutCards();
-        _list.ResumeLayout();
+        _list.ResumeLayout(true);                        // true: AutoScroll 범위·스크롤바 재계산
+        _list.AutoScrollPosition = new Point(0, 0);      // 검색/편집 갱신 후 맨 위로
     }
 
     private void LayoutCards()
@@ -218,7 +219,9 @@ public sealed class SearchWindow : Form
 
     private async Task IndexAndReload(string path)
     {
-        await ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now);
+        try { await ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now); }
+        catch { /* 무시 */ }
+        if (IsDisposed || !IsHandleCreated) return;   // 그새 폼이 닫혔을 수 있음
         if (InvokeRequired) BeginInvoke(Reload); else Reload();
     }
 
@@ -250,10 +253,9 @@ public sealed class SearchWindow : Form
     {
         if (InvokeRequired) { BeginInvoke(NotifyNewScreenshot); return; }
         PositionLeftEdge();
-        Reload();
+        Reload();                       // Reload가 스크롤을 맨 위로 리셋함
         if (!Visible) Show();
         if (_cards.Count > 0) Select(_cards[0]);
-        _list.AutoScrollPosition = new Point(0, 0);
     }
 
     protected override void Dispose(bool disposing)
@@ -329,12 +331,19 @@ internal sealed class ShelfCard : Panel
             _mouseDown = false;
             if (File.Exists(Entry.Path))
                 DoDragDrop(new DataObject(DataFormats.FileDrop, new[] { Entry.Path }), DragDropEffects.Copy);
+            if (IsDisposed) return;   // 드래그 모달 중 Reload로 이 카드가 해제됐을 수 있음
         }
         base.OnMouseMove(e);
     }
 
     protected override void OnMouseUp(MouseEventArgs e) { _mouseDown = false; base.OnMouseUp(e); }
-    protected override void OnDoubleClick(EventArgs e) { Activated?.Invoke(this); base.OnDoubleClick(e); }
+
+    protected override void OnDoubleClick(EventArgs e)
+    {
+        Activated?.Invoke(this);   // 편집기 모달을 열 수 있음 → 그새 Reload로 해제됐을 수 있음
+        if (IsDisposed) return;
+        base.OnDoubleClick(e);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {

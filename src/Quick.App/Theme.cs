@@ -26,6 +26,8 @@ internal static class Theme
     public static readonly Font TitleBig = new("Segoe UI Semibold", 12F);
     public static readonly Font Body = new("Segoe UI", 9.5F);
     public static readonly Font Small = new("Segoe UI", 8.25F);
+    public static readonly Font Icon = new("Segoe UI", 13F);     // 톱니 등 아이콘 글리프
+    public static readonly Font Field = new("Segoe UI", 11F);    // 검색 입력
 
     /// <summary>둥근 사각형 경로.</summary>
     public static GraphicsPath RoundRect(Rectangle r, int radius)
