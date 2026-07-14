@@ -37,7 +37,7 @@ internal sealed class QuickTrayContext : ApplicationContext
 
         _tray = new NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = AppIcon.Value,
             Visible = true,
             Text = "Quick",
         };
@@ -62,6 +62,7 @@ internal sealed class QuickTrayContext : ApplicationContext
         menu.Items.Add("전체 캡처  (Ctrl+Shift+3)", null, (_, _) => CaptureFull());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("검색 열기  (Ctrl+Shift+Q)", null, (_, _) => _search.ToggleVisibility());
+        menu.Items.Add("설정…", null, (_, _) => OpenSettings());
         menu.Items.Add("스크린샷 폴더 열기", null, (_, _) =>
         {
             try { System.Diagnostics.Process.Start("explorer.exe", ScreenshotDir()); } catch { }
@@ -100,20 +101,21 @@ internal sealed class QuickTrayContext : ApplicationContext
         else OnUi();
     }
 
-    /// <summary>Windows 기본 스크린샷 폴더: Pictures\Screenshots (Win+PrtScn). 없으면 Desktop.</summary>
-    private static string ScreenshotDir()
-    {
-        var pics = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        var shots = Path.Combine(pics, "Screenshots");
-        return Directory.Exists(shots)
-            ? shots
-            : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-    }
+    /// <summary>저장/감시 폴더 — 설정값(없으면 Pictures\Screenshots, 없으면 Desktop).</summary>
+    private static string ScreenshotDir() => Settings.Current.EffectiveSaveDir();
 
+    /// <summary>전용 폴더(일반 폴더=Desktop/Documents/홈 이면 이름 패턴도 요구).</summary>
     private static bool IsDedicated(string dir)
     {
-        var pics = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        return dir.StartsWith(Path.Combine(pics, "Screenshots"), StringComparison.OrdinalIgnoreCase);
+        static string Norm(string p) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(p));
+        var common = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        };
+        var d = Norm(dir);
+        return !common.Any(c => string.Equals(Norm(c), d, StringComparison.OrdinalIgnoreCase));
     }
 
     private void StartWatching()
@@ -159,10 +161,26 @@ internal sealed class QuickTrayContext : ApplicationContext
 
     private void SaveAndIndex(Bitmap bmp)
     {
-        var path = CaptureService.Save(bmp, ScreenshotDir());
-        try { Clipboard.SetImage(bmp); } catch { /* 무시 */ }
+        var s = Settings.Current;
+        var path = CaptureService.Save(bmp, s.EffectiveSaveDir(), s.Format);
+        if (s.AutoCopy) { try { Clipboard.SetImage(bmp); } catch { /* 무시 */ } }
+        if (s.SoundOnCapture) { try { System.Media.SystemSounds.Asterisk.Play(); } catch { /* 무시 */ } }
         _tray.ShowBalloonTip(1500, "Quick", "캡처 저장·색인됨", ToolTipIcon.None);
         _ = IndexAndNotify(path);
+    }
+
+    private void OpenSettings()
+    {
+        var before = Settings.Current.EffectiveSaveDir();
+        using var form = new SettingsForm();
+        form.ShowDialog();
+        if (!string.Equals(Settings.Current.EffectiveSaveDir(), before, StringComparison.OrdinalIgnoreCase))
+        {
+            _watcher?.Dispose();
+            _watcher = null;
+            StartWatching();   // 새 폴더로 감시 재시작
+            _ = ScreenshotMemory.Shared.BackfillAsync(ScreenshotDir(), IsDedicated(ScreenshotDir()));
+        }
     }
 
     private async Task IndexAndNotify(string path)

@@ -21,13 +21,15 @@ public static class CaptureService
 
     public static Bitmap CaptureFullScreen() => CaptureRegion(VirtualScreen);
 
-    /// <summary>스크린샷 폴더에 PNG로 저장. 파일명에 "Screenshot" 포함 → 감지 패턴과 일치.</summary>
-    public static string Save(Bitmap bmp, string directory)
+    /// <summary>스크린샷 폴더에 저장. 파일명에 "Screenshot" 포함 → 감지 패턴과 일치.</summary>
+    public static string Save(Bitmap bmp, string directory, string format = "png")
     {
         Directory.CreateDirectory(directory);
-        var name = $"Screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.png";
+        var jpeg = format.Equals("jpeg", StringComparison.OrdinalIgnoreCase);
+        var ext = jpeg ? "jpg" : "png";
+        var name = $"Screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.{ext}";
         var path = Path.Combine(directory, name);
-        bmp.Save(path, ImageFormat.Png);
+        bmp.Save(path, jpeg ? ImageFormat.Jpeg : ImageFormat.Png);
         return path;
     }
 }

@@ -4,8 +4,8 @@ using Quick.Core;
 
 namespace Quick.App;
 
-/// <summary>사이드 패널(선반+검색) — 검색창이 비면 최근 스샷이 쌓여 보이고(선반),
-/// 타이핑하면 '내용' 검색. macOS Quick 패널의 Windows 대응.</summary>
+/// <summary>사이드 패널(선반+검색) — 검색창이 비면 최근 스샷(선반), 타이핑하면 내용 검색.
+/// 상단에 버전·설정(⚙). macOS Quick 패널 대응.</summary>
 public sealed class SearchWindow : Form
 {
     private readonly TextBox _search;
@@ -23,28 +23,45 @@ public sealed class SearchWindow : Form
         KeyPreview = true;
         StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.SizableToolWindow;
+        Icon = AppIcon.Value;
+
+        // 타이틀 바: Quick vX.Y.Z  +  ⚙ 설정
+        var titleBar = new Panel { Dock = DockStyle.Fill };
+        var appName = new Label
+        {
+            Text = $"Quick   v{UpdateService.CurrentVersion}",
+            Font = new Font("Segoe UI Semibold", 10.5F),
+            AutoSize = true,
+            Location = new Point(8, 6),
+        };
+        var gear = new Button
+        {
+            Text = "⚙",
+            Dock = DockStyle.Right,
+            Width = 36,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 12F),
+        };
+        gear.FlatAppearance.BorderSize = 0;
+        gear.Click += (_, _) => { using var f = new SettingsForm(); f.ShowDialog(); };
+        titleBar.Controls.Add(appName);
+        titleBar.Controls.Add(gear);
 
         _search = new TextBox
         {
-            Dock = DockStyle.Top,
-            Height = 40,
+            Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 12F),
             BorderStyle = BorderStyle.FixedSingle,
             PlaceholderText = "스크린샷 내용 검색…  (예: 인보이스, 에러)",
         };
         _header = new Label
         {
-            Dock = DockStyle.Bottom,
-            Height = 22,
+            Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 9F),
             ForeColor = SystemColors.GrayText,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(6, 0, 0, 0),
         };
-        var top = new Panel { Dock = DockStyle.Top, Height = 64 };
-        top.Controls.Add(_search);
-        top.Controls.Add(_header);
-
         _thumbs = new ImageList { ImageSize = new Size(72, 48), ColorDepth = ColorDepth.Depth32Bit };
         _results = new ListView
         {
@@ -58,8 +75,16 @@ public sealed class SearchWindow : Form
         _results.Columns.Add("제목", 240);
         _results.Columns.Add("날짜", 96);
 
-        Controls.Add(_results);
-        Controls.Add(top);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(titleBar, 0, 0);
+        layout.Controls.Add(_search, 0, 1);
+        layout.Controls.Add(_header, 0, 2);
+        layout.Controls.Add(_results, 0, 3);
+        Controls.Add(layout);
 
         _debounce = new System.Windows.Forms.Timer { Interval = 150 };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Reload(); };
@@ -87,7 +112,7 @@ public sealed class SearchWindow : Form
         }
         else
         {
-            Reload();          // 열 때 최근 스샷(선반) 즉시 표시
+            Reload();
             Show();
             Activate();
             _search.Focus();
@@ -95,7 +120,6 @@ public sealed class SearchWindow : Form
         }
     }
 
-    // 트레이 앱: 창 닫기 = 숨기기
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (e.CloseReason == CloseReason.UserClosing)
@@ -143,7 +167,6 @@ public sealed class SearchWindow : Form
         _results.EndUpdate();
     }
 
-    /// <summary>파일 잠금 없이 축소 썸네일 로드.</summary>
     private static Image? LoadThumbnail(string path)
     {
         try
@@ -165,10 +188,7 @@ public sealed class SearchWindow : Form
     {
         var path = SelectedPath();
         if (path is null) return;
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
-        }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
         catch { /* 무시 */ }
     }
 
@@ -180,7 +200,6 @@ public sealed class SearchWindow : Form
         DoDragDrop(data, DragDropEffects.Copy);
     }
 
-    /// <summary>새 스샷이 색인되면 열려있는 선반을 갱신(외부에서 호출).</summary>
     public void NotifyNewScreenshot()
     {
         if (!Visible) return;

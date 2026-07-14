@@ -15,6 +15,7 @@ public sealed class WelcomeForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = true;
+        Icon = AppIcon.Value;
 
         var title = new Label
         {

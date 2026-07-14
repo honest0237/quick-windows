@@ -11,11 +11,16 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Quick</AssemblyName>
     <RootNamespace>Quick.App</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
+    <ApplicationIcon>quick.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Quick.Core/Quick.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="quick.ico" />
   </ItemGroup>
 
 </Project>
