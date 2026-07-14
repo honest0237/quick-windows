@@ -188,16 +188,6 @@ internal sealed class QuickTrayContext : ApplicationContext
                 "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (confirm != DialogResult.Yes) return;
 
-            // 제자리 교체가 불가한 위치(Program Files 등)면 다운로드 없이 바로 브라우저 안내
-            if (!UpdateService.CanInstallInPlace())
-            {
-                var r = MessageBox.Show(
-                    "설치 폴더에 쓰기 권한이 없어요(예: Program Files).\n브라우저에서 새 버전을 받아 실행해 주세요.",
-                    "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                if (r == DialogResult.Yes) _updater.OpenDownload();
-                return;
-            }
-
             DownloadResult result;
             using (var cts = new CancellationTokenSource())
             using (var prog = new UpdateProgressForm(_updater.LatestVersion!))
@@ -231,12 +221,12 @@ internal sealed class QuickTrayContext : ApplicationContext
                 }
 
                 case DownloadOutcome.Success:
+                    // 쓰기 불가 폴더면 ApplyUpdateAndRestart 내부에서 UAC 권한상승으로 설치(브라우저 X)
                     if (!_updater.ApplyUpdateAndRestart(result.Path!))
                     {
-                        var r = MessageBox.Show(
-                            "업데이트 적용에 실패했어요(권한 등).\n브라우저에서 직접 받으시겠어요?",
-                            "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                        if (r == DialogResult.Yes) _updater.OpenDownload();
+                        MessageBox.Show(
+                            "업데이트 적용에 실패했어요.\n(관리자 권한을 허용하지 않았거나 파일이 사용 중일 수 있어요)\n잠시 후 다시 시도해 주세요.",
+                            "Quick 업데이트", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
                     ExitThread();   // 앱 종료 → 헬퍼가 교체 후 새 버전 실행

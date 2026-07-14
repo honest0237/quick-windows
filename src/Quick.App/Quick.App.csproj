@@ -15,7 +15,7 @@
          가정하므로 PerMonitorV2(혼합 DPI)로 가면 좌표 재설계가 필요 → 의식적으로 SystemAware 유지.
          한계: 서로 다른 배율의 멀티모니터에서 보조 화면 캡처가 흐릴 수 있음. -->
     <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
-    <Version>0.6.0</Version>
+    <Version>0.7.0</Version>
     <ApplicationIcon>quick.ico</ApplicationIcon>
   </PropertyGroup>
 

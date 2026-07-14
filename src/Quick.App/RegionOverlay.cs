@@ -20,8 +20,41 @@ public sealed class RegionOverlay : Form
     private Point _cursor;
     private Rectangle _sel;
     private bool _dragging;
+    private Rectangle _windowRectClient;   // 창 캡처: 커서 밑 창 영역(클라이언트 좌표), 없으면 Empty
 
     public Bitmap? Result { get; private set; }
+
+    // ── 커서 밑 '진짜' 창 감지(오버레이는 최상단이라 제외) ──
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out int val, int size);
+    private struct RECT { public int left, top, right, bottom; }
+
+    /// <summary>화면 좌표 sp 아래의 최상단 일반 창의 사각형(화면 좌표). 없으면 null. self는 제외.</summary>
+    private static Rectangle? WindowRectUnderCursor(Point sp, IntPtr self)
+    {
+        Rectangle? found = null;
+        EnumWindows((h, _) =>
+        {
+            if (h == self || !IsWindowVisible(h) || IsIconic(h)) return true;
+            // 클로킹된(다른 데스크톱 등) UWP 창 제외 (DWMWA_CLOAKED = 14)
+            if (DwmGetWindowAttribute(h, 14, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
+            if (!GetWindowRect(h, out RECT r)) return true;
+            var rect = Rectangle.FromLTRB(r.left, r.top, r.right, r.bottom);
+            if (rect.Width < 40 || rect.Height < 40) return true;   // 너무 작은 창 제외
+            if (rect.Contains(sp)) { found = rect; return false; }  // 최상단 히트 → 중단
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
 
     public RegionOverlay(Bitmap frozen)
     {
@@ -68,11 +101,37 @@ public sealed class RegionOverlay : Form
         }
         else
         {
-            DrawCrosshair(g, _cursor);
+            if (!_windowRectClient.IsEmpty)
+            {
+                var wr = _windowRectClient;
+                wr.Intersect(ClientRectangle);
+                if (wr.Width > 0 && wr.Height > 0)
+                {
+                    g.DrawImage(_frozen, wr, wr, GraphicsUnit.Pixel);   // 창 영역 원본 밝기
+                    using var pen = new Pen(Theme.Accent, 3);
+                    g.DrawRectangle(pen, wr);
+                    DrawWindowBadge(g, wr);
+                }
+            }
+            else
+            {
+                DrawCrosshair(g, _cursor);
+            }
             DrawHint(g, _cursor);
         }
 
         DrawLoupe(g, _cursor);
+    }
+
+    private void DrawWindowBadge(Graphics g, Rectangle wr)
+    {
+        const string t = "클릭: 이 창 캡처";
+        var sz = g.MeasureString(t, _badgeFont);
+        float bx = wr.X + 6, by = wr.Y + 6;
+        using (var b = new SolidBrush(Color.FromArgb(220, 47, 129, 247)))
+            g.FillRectangle(b, bx, by, sz.Width + 12, sz.Height + 6);
+        using (var tb = new SolidBrush(Color.White))
+            g.DrawString(t, _badgeFont, tb, bx + 6, by + 3);
     }
 
     private void DrawCrosshair(Graphics g, Point p)
@@ -98,7 +157,7 @@ public sealed class RegionOverlay : Form
 
     private void DrawHint(Graphics g, Point p)
     {
-        const string text = "드래그하여 영역 선택   ·   Esc 또는 우클릭으로 취소";
+        const string text = "드래그 = 영역   ·   클릭 = 창   ·   Esc/우클릭 = 취소";
         var sz = g.MeasureString(text, _hintFont);
         var mon = MonitorClientRect(p);
         float x = mon.Left + (mon.Width - sz.Width) / 2f;
@@ -213,14 +272,33 @@ public sealed class RegionOverlay : Form
         }
         else
         {
-            // 유휴(십자선이 화면 가로지름): 얇은 십자 스트립 + 돋보기 박스 + 힌트 밴드만
-            InvalidateCross(prevCursor);
-            InvalidateCross(_cursor);
+            // 창 캡처: 커서 밑 창 감지. 바뀌면 옛/새 창 영역 갱신.
+            var prevWin = _windowRectClient;
+            _windowRectClient = ComputeWindowRect(_cursor);
+            if (_windowRectClient != prevWin)
+            {
+                if (!prevWin.IsEmpty) Invalidate(Rectangle.Inflate(prevWin, 4, 4));
+                if (!_windowRectClient.IsEmpty) Invalidate(Rectangle.Inflate(_windowRectClient, 4, 4));
+            }
             Invalidate(CursorBox(prevCursor));
             Invalidate(CursorBox(_cursor));
             Invalidate(HintBand(prevCursor));
             Invalidate(HintBand(_cursor));
+            if (_windowRectClient.IsEmpty)   // 창이 없을 때만 십자선(창 하이라이트로 대체)
+            {
+                InvalidateCross(prevCursor);
+                InvalidateCross(_cursor);
+            }
         }
+    }
+
+    private Rectangle ComputeWindowRect(Point cursorClient)
+    {
+        var sp = new Point(cursorClient.X + Bounds.Left, cursorClient.Y + Bounds.Top);
+        var wr = WindowRectUnderCursor(sp, Handle);
+        if (wr is null) return Rectangle.Empty;
+        var r = wr.Value;
+        return new Rectangle(r.X - Bounds.Left, r.Y - Bounds.Top, r.Width, r.Height);
     }
 
     // 돋보기+판독이 어느 방향으로 뒤집혀도 덮는 넉넉한 커서 주변 박스
@@ -242,15 +320,17 @@ public sealed class RegionOverlay : Form
     {
         if (e.Button != MouseButtons.Left) return;
         _dragging = false;
-        if (_sel.Width >= 4 && _sel.Height >= 4)
+
+        Rectangle crop;
+        if (_sel.Width >= 4 && _sel.Height >= 4) crop = _sel;             // 드래그 = 영역
+        else if (!_windowRectClient.IsEmpty) crop = _windowRectClient;    // 클릭(드래그 안 함) = 창
+        else { Close(); return; }
+
+        crop.Intersect(new Rectangle(0, 0, _frozen.Width, _frozen.Height));
+        if (crop.Width >= 4 && crop.Height >= 4)
         {
-            var crop = _sel;
-            crop.Intersect(new Rectangle(0, 0, _frozen.Width, _frozen.Height));
-            if (crop.Width >= 4 && crop.Height >= 4)
-            {
-                Result = _frozen.Clone(crop, _frozen.PixelFormat);
-                DialogResult = DialogResult.OK;
-            }
+            Result = _frozen.Clone(crop, _frozen.PixelFormat);
+            DialogResult = DialogResult.OK;
         }
         Close();
     }

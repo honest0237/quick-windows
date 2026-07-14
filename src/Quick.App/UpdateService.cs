@@ -255,7 +255,8 @@ public sealed class UpdateService
         if (string.IsNullOrEmpty(current) || !File.Exists(newExePath)) return false;
 
         var curDir = Path.GetDirectoryName(current);
-        if (curDir is null || !IsDirWritable(curDir)) return false;   // 관리자 권한 필요 등 → 폴백
+        if (curDir is null) return false;
+        bool writable = IsDirWritable(curDir);   // 쓰기 불가(Program Files 등)면 UAC 권한상승으로(브라우저 X)
 
         // 재시작 후 검증용: 목표버전 기록(교체 실패 시 옛 버전이 이걸 읽고 실패를 알림)
         try
@@ -271,6 +272,8 @@ public sealed class UpdateService
         // cmd 퍼센트 확장은 따옴표 안에서도 일어나므로 경로의 '%'를 '%%'로 이스케이프('&' '^' '!'는 따옴표+지연확장off라 안전).
         var newEsc = newExePath.Replace("%", "%%");
         var curEsc = current.Replace("%", "%%");
+        // 권한 있으면 start(정상 무결성). 없으면(관리자 실행) explorer로 재실행 → 새 앱이 관리자 권한을 상속하지 않도록.
+        var relaunch = writable ? $@"start """" ""{curEsc}""" : $@"explorer.exe ""{curEsc}""";
 
         // move 재시도(앱 종료로 잠금 해제되면 성공). 지연은 timeout 대신 ping(콘솔 없는 환경 회피).
         // 교체 성공/실패 여부는 배치가 아니라 재시작한 앱이 버전으로 검증한다(PendingUpdatePath).
@@ -285,22 +288,31 @@ if %n% geq 120 goto ok
 ping -n 2 127.0.0.1 >nul
 goto loop
 :ok
-start """" ""{curEsc}""
+{relaunch}
 del ""%~f0"" >nul 2>&1
 ";
         try
         {
             File.WriteAllText(bat, script);
-            Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
                 Arguments = $"/c \"{bat}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Hidden,
-            });
+            };
+            if (writable)
+            {
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+            }
+            else
+            {
+                psi.UseShellExecute = true;   // ShellExecute + runas → UAC 권한 상승(인앱 설치 유지)
+                psi.Verb = "runas";
+            }
+            Process.Start(psi);
             return true;
         }
-        catch { return false; }
+        catch { return false; }   // 예: 사용자가 UAC 거부
     }
 }

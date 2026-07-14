@@ -89,6 +89,7 @@ public sealed class SearchWindow : Form
 
         _itemMenu = new ContextMenuStrip();
         _itemMenu.Items.Add("편집", null, (_, _) => EditSelected());
+        _itemMenu.Items.Add("화면에 고정 (핀)", null, (_, _) => PinSelected());
         _itemMenu.Items.Add("텍스트 복사", null, (_, _) => CopyTextSelected());
         _itemMenu.Items.Add("파일 열기", null, (_, _) => OpenSelected());
         _itemMenu.Items.Add("폴더에서 보기", null, (_, _) => RevealInFolder());
@@ -223,6 +224,22 @@ public sealed class SearchWindow : Form
         catch { /* 무시 */ }
         if (IsDisposed || !IsHandleCreated) return;   // 그새 폼이 닫혔을 수 있음
         if (InvokeRequired) BeginInvoke(Reload); else Reload();
+    }
+
+    /// <summary>선택 항목을 화면에 항상-위 핀으로 고정(독립 플로팅 창).</summary>
+    private void PinSelected()
+    {
+        var path = _selected?.Entry.Path;
+        if (path is null || !File.Exists(path)) return;
+        try
+        {
+            Bitmap bmp;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+            using (var img = Image.FromStream(fs))
+                bmp = new Bitmap(img);
+            new PinWindow(bmp).Show();   // PinWindow가 비트맵 소유·해제
+        }
+        catch { /* 무시 */ }
     }
 
     private void CopyTextSelected()
