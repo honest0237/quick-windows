@@ -3,8 +3,8 @@ using Quick.Core;
 
 namespace Quick.App;
 
-/// <summary>GitHub Releases 기반 업데이트 확인 (인앱 알림). macOS UpdateService 대응.
-/// 코어의 VersionCompare 재사용. 프리뷰(prerelease) 포함하려 releases 목록을 조회.</summary>
+/// <summary>GitHub Releases 기반 업데이트 확인 (인앱 알림 + 직접 다운로드).
+/// macOS UpdateService 대응. 코어 VersionCompare 재사용.</summary>
 public sealed class UpdateService
 {
     private const string Owner = "honest0237";
@@ -21,6 +21,7 @@ public sealed class UpdateService
 
     public string? LatestVersion { get; private set; }
     public string? ReleaseUrl { get; private set; }
+    public string? DownloadUrl { get; private set; }   // 최신 릴리스의 Quick.exe 직접 링크
 
     public bool UpdateAvailable =>
         LatestVersion is not null && VersionCompare.IsNewer(LatestVersion, CurrentVersion);
@@ -37,27 +38,41 @@ public sealed class UpdateService
             using var doc = JsonDocument.Parse(json);
 
             string bestVer = "0";
-            string? bestUrl = null;
+            string? bestUrl = null, bestDownload = null;
             foreach (var el in doc.RootElement.EnumerateArray())
             {
                 if (!el.TryGetProperty("tag_name", out var tagEl)) continue;
                 var tag = tagEl.GetString() ?? "";
                 var ver = tag.StartsWith("v") ? tag[1..] : tag;
-                var url = el.TryGetProperty("html_url", out var u) ? u.GetString() : null;
-                if (VersionCompare.IsNewer(ver, bestVer)) { bestVer = ver; bestUrl = url; }
+                if (!VersionCompare.IsNewer(ver, bestVer)) continue;
+
+                bestVer = ver;
+                bestUrl = el.TryGetProperty("html_url", out var u) ? u.GetString() : null;
+                bestDownload = null;
+                if (el.TryGetProperty("assets", out var assets))
+                {
+                    foreach (var a in assets.EnumerateArray())
+                    {
+                        var an = a.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        if (an is not null && an.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                            bestDownload = a.TryGetProperty("browser_download_url", out var d) ? d.GetString() : null;
+                    }
+                }
             }
             if (bestVer != "0")
             {
                 LatestVersion = bestVer;
                 ReleaseUrl = bestUrl;
+                DownloadUrl = bestDownload;
             }
         }
-        catch { /* 네트워크 실패 등 무시 */ }
+        catch { /* 무시 */ }
     }
 
-    public void OpenReleasePage()
+    /// <summary>새 exe를 바로 다운로드(직접 링크). 없으면 릴리스 페이지.</summary>
+    public void OpenDownload()
     {
-        var url = ReleaseUrl ?? $"https://github.com/{Owner}/{Repo}/releases/latest";
+        var url = DownloadUrl ?? ReleaseUrl ?? $"https://github.com/{Owner}/{Repo}/releases/latest";
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
         catch { /* 무시 */ }
     }

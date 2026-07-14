@@ -41,7 +41,7 @@ internal sealed class QuickTrayContext : ApplicationContext
             Visible = true,
             Text = "Quick",
         };
-        _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) _updater.OpenReleasePage(); };
+        _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) _updater.OpenDownload(); };
         RefreshMenu();
 
         ShowWelcomeIfFirstRun();
@@ -55,7 +55,7 @@ internal sealed class QuickTrayContext : ApplicationContext
         var menu = new ContextMenuStrip();
         if (_updater.UpdateAvailable)
         {
-            menu.Items.Add($"⬆ 업데이트 있음: v{_updater.LatestVersion}", null, (_, _) => _updater.OpenReleasePage());
+            menu.Items.Add($"⬆ 업데이트 있음: v{_updater.LatestVersion}", null, (_, _) => _updater.OpenDownload());
             menu.Items.Add(new ToolStripSeparator());
         }
         menu.Items.Add("영역 캡처  (Ctrl+Shift+4)", null, (_, _) => CaptureRegion());
