@@ -35,7 +35,13 @@ public sealed class PinWindow : Form
         int w = Math.Max(60, (int)Math.Round(img.Width * scale));
         int h = Math.Max(40, (int)Math.Round(img.Height * scale));
         ClientSize = new Size(w, h);
-        Location = new Point(wa.Left + 60, wa.Top + 60);
+
+        // 여러 핀이 겹치지 않게 열려있는 핀 수만큼 계단식 배치
+        int n = System.Linq.Enumerable.Count(Application.OpenForms.OfType<PinWindow>());
+        int step = 28;
+        int ox = (n * step) % Math.Max(step, wa.Width - w - 120);
+        int oy = (n * step) % Math.Max(step, wa.Height - h - 120);
+        Location = new Point(wa.Left + 60 + ox, wa.Top + 60 + oy);
 
         _menu = new ContextMenuStrip();
         _menu.Items.Add("복사", null, (_, _) => { try { Clipboard.SetImage(_img); } catch { } });
@@ -55,6 +61,17 @@ public sealed class PinWindow : Form
             SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
         }
         base.OnMouseDown(e);
+    }
+
+    protected override void OnResizeEnd(EventArgs e)
+    {
+        base.OnResizeEnd(e);
+        // 드래그로 화면 밖으로 완전히 나가 못 닫는 상황 방지: 일부는 화면 안에 남기기
+        var scr = Screen.FromControl(this).WorkingArea;
+        var b = Bounds;
+        int x = Math.Max(scr.Left - b.Width + 60, Math.Min(b.X, scr.Right - 60));
+        int y = Math.Max(scr.Top, Math.Min(b.Y, scr.Bottom - 40));
+        if (x != b.X || y != b.Y) Location = new Point(x, y);
     }
 
     protected override void OnPaint(PaintEventArgs e)

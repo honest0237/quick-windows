@@ -21,6 +21,7 @@ public sealed class RegionOverlay : Form
     private Rectangle _sel;
     private bool _dragging;
     private Rectangle _windowRectClient;   // 창 캡처: 커서 밑 창 영역(클라이언트 좌표), 없으면 Empty
+    private Point _lastWinPt = new(-9999, -9999);   // 창 열거 스로틀용 마지막 계산 지점
 
     public Bitmap? Result { get; private set; }
 
@@ -34,23 +35,50 @@ public sealed class RegionOverlay : Form
     private static extern bool IsIconic(IntPtr hWnd);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static extern int GetWindowLong(IntPtr hWnd, int idx);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint key, out byte alpha, out uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buf, int max);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out int val, int size);
     private struct RECT { public int left, top, right, bottom; }
 
-    /// <summary>화면 좌표 sp 아래의 최상단 일반 창의 사각형(화면 좌표). 없으면 null. self는 제외.</summary>
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TRANSPARENT = 0x20, WS_EX_LAYERED = 0x80000;
+    private static readonly string[] ShellClasses = { "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd" };
+
+    /// <summary>화면 좌표 sp 아래의 최상단 '진짜' 창 사각형(화면 좌표). 없으면 null.
+    /// self·자기 프로세스·최소화·클로킹·투명(클릭통과)·바탕화면 셸·초소형 창은 제외.</summary>
     private static Rectangle? WindowRectUnderCursor(Point sp, IntPtr self)
     {
+        uint myPid = (uint)Environment.ProcessId;
         Rectangle? found = null;
         EnumWindows((h, _) =>
         {
             if (h == self || !IsWindowVisible(h) || IsIconic(h)) return true;
-            // 클로킹된(다른 데스크톱 등) UWP 창 제외 (DWMWA_CLOAKED = 14)
-            if (DwmGetWindowAttribute(h, 14, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
+
+            GetWindowThreadProcessId(h, out uint pid);
+            if (pid == myPid) return true;   // 자기 창(선반·핀·오버레이)
+
+            if (DwmGetWindowAttribute(h, 14, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return true;   // DWMWA_CLOAKED
+
+            int ex = GetWindowLong(h, GWL_EXSTYLE);
+            if ((ex & WS_EX_TRANSPARENT) != 0) return true;   // 클릭통과 오버레이(Discord/Steam/GeForce 등)
+            if ((ex & WS_EX_LAYERED) != 0 && GetLayeredWindowAttributes(h, out _, out byte alpha, out uint lf) && (lf & 0x2) != 0 && alpha == 0) return true;   // 완전투명
+
+            var sb = new System.Text.StringBuilder(64);
+            GetClassName(h, sb, sb.Capacity);
+            var cls = sb.ToString();
+            foreach (var s in ShellClasses) if (cls == s) return true;   // 바탕화면/작업표시줄
+
             if (!GetWindowRect(h, out RECT r)) return true;
             var rect = Rectangle.FromLTRB(r.left, r.top, r.right, r.bottom);
-            if (rect.Width < 40 || rect.Height < 40) return true;   // 너무 작은 창 제외
-            if (rect.Contains(sp)) { found = rect; return false; }  // 최상단 히트 → 중단
+            if (rect.Width < 40 || rect.Height < 40) return true;
+            if (rect.Contains(sp)) { found = rect; return false; }
             return true;
         }, IntPtr.Zero);
         return found;
@@ -272,9 +300,13 @@ public sealed class RegionOverlay : Form
         }
         else
         {
-            // 창 캡처: 커서 밑 창 감지. 바뀌면 옛/새 창 영역 갱신.
+            // 창 캡처: 커서 밑 창 감지(몇 px 이상 움직였을 때만 열거 — UI 스레드 부하 완화).
             var prevWin = _windowRectClient;
-            _windowRectClient = ComputeWindowRect(_cursor);
+            if (Math.Abs(_cursor.X - _lastWinPt.X) > 3 || Math.Abs(_cursor.Y - _lastWinPt.Y) > 3)
+            {
+                _lastWinPt = _cursor;
+                _windowRectClient = ComputeWindowRect(_cursor);
+            }
             if (_windowRectClient != prevWin)
             {
                 if (!prevWin.IsEmpty) Invalidate(Rectangle.Inflate(prevWin, 4, 4));

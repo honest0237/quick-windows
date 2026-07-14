@@ -272,8 +272,13 @@ public sealed class UpdateService
         // cmd 퍼센트 확장은 따옴표 안에서도 일어나므로 경로의 '%'를 '%%'로 이스케이프('&' '^' '!'는 따옴표+지연확장off라 안전).
         var newEsc = newExePath.Replace("%", "%%");
         var curEsc = current.Replace("%", "%%");
-        // 권한 있으면 start(정상 무결성). 없으면(관리자 실행) explorer로 재실행 → 새 앱이 관리자 권한을 상속하지 않도록.
-        var relaunch = writable ? $@"start """" ""{curEsc}""" : $@"explorer.exe ""{curEsc}""";
+        // 권한 있으면 start(정상 무결성). 없으면(관리자) explorer로 재실행(권한 비상속) →
+        // explorer가 실패해도 앱이 사라지지 않도록 실행 확인 후 start 폴백.
+        var relaunch = writable
+            ? $@"start """" ""{curEsc}"""
+            : $@"explorer.exe ""{curEsc}""
+ping -n 3 127.0.0.1 >nul
+tasklist /fi ""imagename eq Quick.exe"" | find /i ""Quick.exe"" >nul || start """" ""{curEsc}""";
 
         // move 재시도(앱 종료로 잠금 해제되면 성공). 지연은 timeout 대신 ping(콘솔 없는 환경 회피).
         // 교체 성공/실패 여부는 배치가 아니라 재시작한 앱이 버전으로 검증한다(PendingUpdatePath).
