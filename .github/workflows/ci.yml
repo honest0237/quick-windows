@@ -26,4 +26,4 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Build solution
-        run: dotnet build Quick.sln -c Release
+        run: dotnet build Quick.slnx -c Release
