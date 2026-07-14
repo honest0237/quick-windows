@@ -68,7 +68,7 @@ public sealed class RegionOverlay : Form
 
             int ex = GetWindowLong(h, GWL_EXSTYLE);
             if ((ex & WS_EX_TRANSPARENT) != 0) return true;   // 클릭통과 오버레이(Discord/Steam/GeForce 등)
-            if ((ex & WS_EX_LAYERED) != 0 && GetLayeredWindowAttributes(h, out _, out byte alpha, out uint lf) && (lf & 0x2) != 0 && alpha == 0) return true;   // 완전투명
+            if ((ex & WS_EX_LAYERED) != 0 && GetLayeredWindowAttributes(h, out uint _k, out byte alpha, out uint lf) && (lf & 0x2) != 0 && alpha == 0) return true;   // 완전투명
 
             var sb = new System.Text.StringBuilder(64);
             GetClassName(h, sb, sb.Capacity);
