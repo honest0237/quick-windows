@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -284,6 +285,8 @@ internal sealed class ShelfCard : Panel
     public event Action<ShelfCard>? Clicked;
     public event Action<ShelfCard>? Activated;
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Selected { get => _selected; set { if (_selected != value) { _selected = value; Invalidate(); } } }
 
     public ShelfCard(MemoryEntry entry, Image? thumb)
