@@ -24,6 +24,7 @@ internal sealed class QuickTrayContext : ApplicationContext
     private readonly UpdateService _updater = new();
     private readonly SynchronizationContext? _ui;
     private FileSystemWatcher? _watcher;
+    private bool _installing;   // InstallUpdate 재진입 가드
 
     public QuickTrayContext()
     {
@@ -41,10 +42,11 @@ internal sealed class QuickTrayContext : ApplicationContext
             Visible = true,
             Text = "Quick",
         };
-        _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) _updater.OpenDownload(); };
+        _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) InstallUpdate(); };
         RefreshMenu();
 
         ShowWelcomeIfFirstRun();
+        CheckPendingUpdate();
         StartWatching();
         _ = ScreenshotMemory.Shared.BackfillAsync(ScreenshotDir(), IsDedicated(ScreenshotDir()));
         _ = CheckUpdateAsync();
@@ -55,7 +57,7 @@ internal sealed class QuickTrayContext : ApplicationContext
         var menu = new ContextMenuStrip();
         if (_updater.UpdateAvailable)
         {
-            menu.Items.Add($"⬆ 업데이트 있음: v{_updater.LatestVersion}", null, (_, _) => _updater.OpenDownload());
+            menu.Items.Add($"⬆ 업데이트 설치: v{_updater.LatestVersion}", null, (_, _) => InstallUpdate());
             menu.Items.Add(new ToolStripSeparator());
         }
         menu.Items.Add("영역 캡처  (Ctrl+Shift+4)", null, (_, _) => CaptureRegion());
@@ -95,10 +97,106 @@ internal sealed class QuickTrayContext : ApplicationContext
         void OnUi()
         {
             RefreshMenu();
-            _tray.ShowBalloonTip(5000, "Quick 업데이트", $"새 버전 v{_updater.LatestVersion} 이(가) 있습니다. 눌러서 받기", ToolTipIcon.Info);
+            _tray.ShowBalloonTip(5000, "Quick 업데이트", $"새 버전 v{_updater.LatestVersion} — 눌러서 설치", ToolTipIcon.Info);
         }
         if (_ui is not null) _ui.Post(_ => OnUi(), null);
         else OnUi();
+    }
+
+    /// <summary>원클릭 자동 설치: 확인 → (권한 확인) → 다운로드(진행률·취소) → 검증 → 교체·재시작.
+    /// 각 실패 유형을 구분해 안내하고, 자동설치 불가 시 브라우저 다운로드로 폴백.</summary>
+    private async void InstallUpdate()
+    {
+        if (_installing || !_updater.UpdateAvailable) return;
+        _installing = true;
+        try
+        {
+            var confirm = MessageBox.Show(
+                $"새 버전 v{_updater.LatestVersion} 을(를) 지금 설치하고 재시작할까요?",
+                "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (confirm != DialogResult.Yes) return;
+
+            // 제자리 교체가 불가한 위치(Program Files 등)면 다운로드 없이 바로 브라우저 안내
+            if (!UpdateService.CanInstallInPlace())
+            {
+                var r = MessageBox.Show(
+                    "설치 폴더에 쓰기 권한이 없어요(예: Program Files).\n브라우저에서 새 버전을 받아 실행해 주세요.",
+                    "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (r == DialogResult.Yes) _updater.OpenDownload();
+                return;
+            }
+
+            DownloadResult result;
+            using (var cts = new CancellationTokenSource())
+            using (var prog = new UpdateProgressForm(_updater.LatestVersion!))
+            {
+                prog.CancelRequested += () => cts.Cancel();
+                prog.Show();
+                var progress = new Progress<double>(p => prog.SetProgress(p));
+                try { result = await _updater.DownloadAsync(progress, cts.Token); }
+                catch { result = new DownloadResult(DownloadOutcome.TransferError, null); }
+                prog.ForceClose();
+            }
+
+            switch (result.Outcome)
+            {
+                case DownloadOutcome.Cancelled:
+                    return;   // 사용자 취소 — 조용히 종료
+
+                case DownloadOutcome.IntegrityError:
+                    MessageBox.Show(
+                        "받은 파일의 무결성 검증에 실패했어요.\n파일이 손상되었거나 변조되었을 수 있어 설치를 중단합니다.",
+                        "Quick 업데이트", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+
+                case DownloadOutcome.TransferError:
+                {
+                    var r = MessageBox.Show(
+                        "업데이트를 완료하지 못했어요.\n브라우저에서 직접 받으시겠어요?",
+                        "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (r == DialogResult.Yes) _updater.OpenDownload();
+                    return;
+                }
+
+                case DownloadOutcome.Success:
+                    if (!_updater.ApplyUpdateAndRestart(result.Path!))
+                    {
+                        var r = MessageBox.Show(
+                            "업데이트 적용에 실패했어요(권한 등).\n브라우저에서 직접 받으시겠어요?",
+                            "Quick 업데이트", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (r == DialogResult.Yes) _updater.OpenDownload();
+                        return;
+                    }
+                    ExitThread();   // 앱 종료 → 헬퍼가 교체 후 새 버전 실행
+                    return;
+            }
+        }
+        finally
+        {
+            _installing = false;   // 성공(ExitThread) 경로에선 실행 안 되지만 무해
+        }
+    }
+
+    /// <summary>이전 실행에서 자동설치를 시도했다면, 재시작 후 실제로 버전이 올랐는지 검증.
+    /// 오르지 않았으면(교체 실패) 사용자에게 알림 → 조용한 실패 방지.</summary>
+    private void CheckPendingUpdate()
+    {
+        var path = UpdateService.PendingUpdatePath;
+        if (!File.Exists(path)) return;
+
+        string target;
+        try { target = File.ReadAllText(path).Trim(); }
+        catch { return; }
+        try { File.Delete(path); } catch { /* 무시 */ }
+        if (string.IsNullOrEmpty(target)) return;
+
+        if (VersionCompare.IsNewer(target, UpdateService.CurrentVersion))
+            _tray.ShowBalloonTip(6000, "Quick 업데이트",
+                $"v{target} 설치가 완료되지 않았어요. 트레이 메뉴에서 다시 시도하거나 브라우저에서 받아주세요.",
+                ToolTipIcon.Warning);
+        else
+            _tray.ShowBalloonTip(4000, "Quick",
+                $"v{UpdateService.CurrentVersion} 로 업데이트되었습니다 🎉", ToolTipIcon.Info);
     }
 
     /// <summary>저장/감시 폴더 — 설정값(없으면 Pictures\Screenshots, 없으면 Desktop).</summary>
