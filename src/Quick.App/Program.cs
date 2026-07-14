@@ -92,6 +92,7 @@ internal sealed class QuickTrayContext : ApplicationContext
         if (!ScreenshotName.Matches(Path.GetFileName(e.FullPath), IsDedicated(dir))) return;
         await Task.Delay(400);   // 파일 쓰기 완료 대기
         await ScreenshotMemory.Shared.RecordAsync(e.FullPath, DateTimeOffset.Now);
+        _search.NotifyNewScreenshot();   // 선반 갱신
     }
 
     // MARK: 캡처 (Windows엔 스샷→폴더 흐름이 약해서 직접 제공)
@@ -119,8 +120,14 @@ internal sealed class QuickTrayContext : ApplicationContext
     {
         var path = CaptureService.Save(bmp, ScreenshotDir());
         try { Clipboard.SetImage(bmp); } catch { /* 무시 */ }
-        _ = ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now);   // OCR 색인(비동기)
         _tray.ShowBalloonTip(1500, "Quick", "캡처 저장·색인됨", ToolTipIcon.None);
+        _ = IndexAndNotify(path);
+    }
+
+    private async Task IndexAndNotify(string path)
+    {
+        await ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now);   // OCR 색인
+        _search.NotifyNewScreenshot();                                         // 선반 갱신
     }
 
     protected override void Dispose(bool disposing)

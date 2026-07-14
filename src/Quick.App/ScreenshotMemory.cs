@@ -25,6 +25,13 @@ public sealed class ScreenshotMemory
 
     private ScreenshotMemory() => Load();
 
+    /// <summary>최근 스샷 N개(선반용) — 파일이 존재하는 것만, 최신순.</summary>
+    public IReadOnlyList<MemoryEntry> Recent(int n = 40)
+    {
+        lock (_lock)
+            return _entries.Where(e => File.Exists(e.Path)).Take(n).ToList();
+    }
+
     public IReadOnlyList<MemoryEntry> Search(string query, int limit = 40)
     {
         lock (_lock)
