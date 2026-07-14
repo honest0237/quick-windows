@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Windows.Forms;
 using Quick.Core;
 
@@ -25,7 +26,10 @@ internal sealed class QuickTrayContext : ApplicationContext
     public QuickTrayContext()
     {
         _search = new SearchWindow();
-        _hotkey = new HotkeyManager(() => _search.ToggleVisibility());
+        _hotkey = new HotkeyManager();
+        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.VkQ, () => _search.ToggleVisibility());
+        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.Vk4, CaptureRegion);
+        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.Vk3, CaptureFull);
 
         _tray = new NotifyIcon
         {
@@ -42,7 +46,10 @@ internal sealed class QuickTrayContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add($"검색 열기  ({HotkeyManager.Label})", null, (_, _) => _search.ToggleVisibility());
+        menu.Items.Add("영역 캡처  (Ctrl+Shift+4)", null, (_, _) => CaptureRegion());
+        menu.Items.Add("전체 캡처  (Ctrl+Shift+3)", null, (_, _) => CaptureFull());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("검색 열기  (Ctrl+Shift+Q)", null, (_, _) => _search.ToggleVisibility());
         menu.Items.Add("스크린샷 폴더 열기", null, (_, _) =>
         {
             try { System.Diagnostics.Process.Start("explorer.exe", ScreenshotDir()); } catch { }
@@ -85,6 +92,35 @@ internal sealed class QuickTrayContext : ApplicationContext
         if (!ScreenshotName.Matches(Path.GetFileName(e.FullPath), IsDedicated(dir))) return;
         await Task.Delay(400);   // 파일 쓰기 완료 대기
         await ScreenshotMemory.Shared.RecordAsync(e.FullPath, DateTimeOffset.Now);
+    }
+
+    // MARK: 캡처 (Windows엔 스샷→폴더 흐름이 약해서 직접 제공)
+
+    private void CaptureRegion()
+    {
+        var frozen = CaptureService.CaptureFullScreen();
+        using var overlay = new RegionOverlay(frozen);
+        var result = overlay.ShowDialog() == DialogResult.OK ? overlay.Result : null;
+        frozen.Dispose();
+        if (result is not null)
+        {
+            SaveAndIndex(result);
+            result.Dispose();
+        }
+    }
+
+    private void CaptureFull()
+    {
+        using var bmp = CaptureService.CaptureFullScreen();
+        SaveAndIndex(bmp);
+    }
+
+    private void SaveAndIndex(Bitmap bmp)
+    {
+        var path = CaptureService.Save(bmp, ScreenshotDir());
+        try { Clipboard.SetImage(bmp); } catch { /* 무시 */ }
+        _ = ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now);   // OCR 색인(비동기)
+        _tray.ShowBalloonTip(1500, "Quick", "캡처 저장·색인됨", ToolTipIcon.None);
     }
 
     protected override void Dispose(bool disposing)

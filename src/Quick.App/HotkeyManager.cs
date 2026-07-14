@@ -3,8 +3,7 @@ using System.Windows.Forms;
 
 namespace Quick.App;
 
-/// <summary>전역 단축키 (Win32 RegisterHotKey). macOS Carbon 핫키의 Windows 대응.
-/// 기본: Ctrl+Shift+Q (Windows에서 충돌 적음; Alt+Space는 시스템 메뉴라 회피).</summary>
+/// <summary>전역 단축키 (Win32 RegisterHotKey). 여러 개 등록 지원.</summary>
 public sealed class HotkeyManager : NativeWindow, IDisposable
 {
     [DllImport("user32.dll")]
@@ -14,33 +13,37 @@ public sealed class HotkeyManager : NativeWindow, IDisposable
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private const int WM_HOTKEY = 0x0312;
-    private const int HotkeyId = 1;
 
-    // MOD_CONTROL(0x0002) | MOD_SHIFT(0x0004), VK 'Q'(0x51)
-    private const uint Modifiers = 0x0002 | 0x0004;
-    private const uint VkQ = 0x51;
+    // 수정자
+    public const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004;
+    // 가상 키
+    public const uint VkQ = 0x51, Vk3 = 0x33, Vk4 = 0x34;
 
-    public const string Label = "Ctrl+Shift+Q";
+    private readonly Dictionary<int, Action> _actions = new();
+    private int _nextId = 1;
 
-    private readonly Action _onPressed;
+    public HotkeyManager() => CreateHandle(new CreateParams());
 
-    public HotkeyManager(Action onPressed)
+    /// <summary>단축키 등록. 실패해도(충돌 등) 조용히 무시.</summary>
+    public void Register(uint modifiers, uint vk, Action action)
     {
-        _onPressed = onPressed;
-        CreateHandle(new CreateParams());
-        RegisterHotKey(Handle, HotkeyId, Modifiers, VkQ);
+        int id = _nextId++;
+        if (RegisterHotKey(Handle, id, modifiers, vk))
+            _actions[id] = action;
     }
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_HOTKEY && (int)m.WParam == HotkeyId)
-            _onPressed();
+        if (m.Msg == WM_HOTKEY && _actions.TryGetValue((int)m.WParam, out var action))
+            action();
         base.WndProc(ref m);
     }
 
     public void Dispose()
     {
-        UnregisterHotKey(Handle, HotkeyId);
+        foreach (var id in _actions.Keys)
+            UnregisterHotKey(Handle, id);
+        _actions.Clear();
         DestroyHandle();
     }
 }
