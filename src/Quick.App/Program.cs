@@ -24,7 +24,11 @@ internal sealed class QuickTrayContext : ApplicationContext
     private readonly UpdateService _updater = new();
     private readonly SynchronizationContext? _ui;
     private FileSystemWatcher? _watcher;
-    private bool _installing;   // InstallUpdate 재진입 가드
+    private bool _installing;              // InstallUpdate 재진입 가드
+    private bool _capturing;               // 캡처 재진입 가드(오버레이 중 핫키 재진입 방지)
+    private System.Windows.Forms.Timer? _updateTimer;   // 실행 중 주기적 업데이트 확인
+    private string? _notifiedVersion;      // 같은 버전 중복 풍선 방지
+    private bool _searchHkOk = true, _regionHkOk = true, _fullHkOk = true;   // 단축키 등록 성공 여부(메뉴 표기용)
 
     public QuickTrayContext()
     {
@@ -49,6 +53,8 @@ internal sealed class QuickTrayContext : ApplicationContext
         StartWatching();
         _ = ScreenshotMemory.Shared.BackfillAsync(ScreenshotDir(), IsDedicated(ScreenshotDir()));
         _ = CheckUpdateAsync();
+        StartUpdateTimer();    // 실행 중에도 주기적으로 확인(재시작 없이 알림)
+        ShowRunningNotice();   // 트레이에 떠 있음을 알림(초보자용)
     }
 
     private void RefreshMenu()
@@ -60,10 +66,11 @@ internal sealed class QuickTrayContext : ApplicationContext
             menu.Items.Add(new ToolStripSeparator());
         }
         var s = Settings.Current;
-        menu.Items.Add($"영역 캡처  ({s.CaptureRegionHotkey.Format()})", null, (_, _) => CaptureRegion());
-        menu.Items.Add($"전체 캡처  ({s.CaptureFullHotkey.Format()})", null, (_, _) => CaptureFull());
+        static string Lbl(string name, Hotkey hk, bool ok) => ok ? $"{name}  ({hk.Format()})" : $"{name}  (단축키 미등록)";
+        menu.Items.Add(Lbl("영역 캡처", s.CaptureRegionHotkey, _regionHkOk), null, (_, _) => CaptureRegion());
+        menu.Items.Add(Lbl("전체 캡처", s.CaptureFullHotkey, _fullHkOk), null, (_, _) => CaptureFull());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add($"검색 열기  ({s.SearchHotkey.Format()})", null, (_, _) => _search.ToggleVisibility());
+        menu.Items.Add(Lbl("검색 열기", s.SearchHotkey, _searchHkOk), null, (_, _) => _search.ToggleVisibility());
         menu.Items.Add("설정…", null, (_, _) => OpenSettings());
         menu.Items.Add("스크린샷 폴더 열기", null, (_, _) =>
         {
@@ -71,32 +78,40 @@ internal sealed class QuickTrayContext : ApplicationContext
         });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => ExitThread());
+
+        var old = _tray.ContextMenuStrip;   // 이전 메뉴 핸들 누수 방지
         _tray.ContextMenuStrip = menu;
+        old?.Dispose();
     }
 
-    /// <summary>설정값으로 전역 단축키를 (재)등록. 충돌·무효 시 트레이 알림.</summary>
+    /// <summary>설정값으로 전역 단축키를 (재)등록. 내부 중복·외부 충돌을 구분해 안내.</summary>
     private void RegisterHotkeys()
     {
         _hotkey.UnregisterAll();
         var s = Settings.Current;
-        var failed = new List<string>();
 
-        void Reg(Hotkey? hk, Action act, string label)
-        {
-            if (hk is null || !hk.IsValid || !_hotkey.Register(hk, act))
-                failed.Add($"{label}({(hk is null ? "-" : hk.Format())})");
-        }
+        // 내부 중복(같은 조합을 둘 이상 액션에 지정) 먼저 감지 — RegisterHotKey 는 같은 창에 같은 조합 2번 등록 불가
+        var valid = new[] { s.SearchHotkey, s.CaptureRegionHotkey, s.CaptureFullHotkey }
+            .Where(h => h is not null && h.IsValid);
+        bool internalDup = valid.GroupBy(h => h).Any(g => g.Count() > 1);
 
-        Reg(s.SearchHotkey, () => _search.ToggleVisibility(), "패널");
-        Reg(s.CaptureRegionHotkey, CaptureRegion, "영역");
-        Reg(s.CaptureFullHotkey, CaptureFull, "전체");
+        _searchHkOk = TryReg(s.SearchHotkey, () => _search.ToggleVisibility());
+        _regionHkOk = TryReg(s.CaptureRegionHotkey, CaptureRegion);
+        _fullHkOk = TryReg(s.CaptureFullHotkey, CaptureFull);
 
-        RefreshMenu();   // 메뉴의 단축키 표기 갱신
+        RefreshMenu();   // 메뉴의 단축키 표기 갱신(미등록 포함)
 
-        if (failed.Count > 0)
+        bool allOk = _searchHkOk && _regionHkOk && _fullHkOk;
+        if (internalDup)
+            _tray.ShowBalloonTip(4000, "단축키 중복",
+                "같은 조합이 여러 기능에 지정돼 하나만 동작해요. 설정에서 바꿔주세요.", ToolTipIcon.Warning);
+        else if (!allOk)
             _tray.ShowBalloonTip(4000, "단축키 등록 실패",
-                $"{string.Join(", ", failed)} — 다른 프로그램이 쓰는 조합일 수 있어요.", ToolTipIcon.Warning);
+                "다른 프로그램이 쓰는 조합일 수 있어요. 설정에서 바꿔주세요.", ToolTipIcon.Warning);
     }
+
+    private bool TryReg(Hotkey? hk, Action act) =>
+        hk is not null && hk.IsValid && _hotkey.Register(hk, act);
 
     private void OnHotkeysChanged()
     {
@@ -127,11 +142,37 @@ internal sealed class QuickTrayContext : ApplicationContext
         void OnUi()
         {
             RefreshMenu();
-            _tray.ShowBalloonTip(5000, "Quick 업데이트", $"새 버전 v{_updater.LatestVersion} — 눌러서 설치", ToolTipIcon.Info);
+            var v = _updater.LatestVersion;
+            SetTrayText($"Quick — 업데이트 v{v} 있음");   // 마우스만 올려도 보임
+            if (_notifiedVersion != v)   // 새 버전일 때만 풍선(주기적 확인이 도배하지 않게)
+            {
+                _notifiedVersion = v;
+                _tray.ShowBalloonTip(6000, "Quick 업데이트", $"새 버전 v{v} — 눌러서 설치", ToolTipIcon.Info);
+            }
         }
         if (_ui is not null) _ui.Post(_ => OnUi(), null);
         else OnUi();
     }
+
+    /// <summary>실행 중에도 30분마다 업데이트를 확인 → 새 버전이 나오면 재시작 없이 알림.</summary>
+    private void StartUpdateTimer()
+    {
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
+        _updateTimer.Tick += (_, _) => _ = CheckUpdateAsync();
+        _updateTimer.Start();
+    }
+
+    /// <summary>앱이 트레이에 상주 중임을 알림(창이 없어 실행 여부를 모르는 사용자용).</summary>
+    private void ShowRunningNotice()
+    {
+        var s = Settings.Current;
+        _tray.ShowBalloonTip(4000, "Quick 실행 중",
+            $"트레이(작업 표시줄 오른쪽 ▲)에 있어요.  캡처 {s.CaptureRegionHotkey.Format()} · 검색 {s.SearchHotkey.Format()}",
+            ToolTipIcon.Info);
+    }
+
+    private void SetTrayText(string text) =>
+        _tray.Text = text.Length > 63 ? text[..63] : text;   // NotifyIcon.Text 63자 제한
 
     /// <summary>원클릭 자동 설치: 확인 → (권한 확인) → 다운로드(진행률·취소) → 검증 → 교체·재시작.
     /// 각 실패 유형을 구분해 안내하고, 자동설치 불가 시 브라우저 다운로드로 폴백.</summary>
@@ -270,21 +311,33 @@ internal sealed class QuickTrayContext : ApplicationContext
 
     private void CaptureRegion()
     {
-        var frozen = CaptureService.CaptureFullScreen();
-        using var overlay = new RegionOverlay(frozen);
-        var result = overlay.ShowDialog() == DialogResult.OK ? overlay.Result : null;
-        frozen.Dispose();
-        if (result is not null)
+        if (_capturing) return;   // 오버레이가 떠 있는 동안 핫키 재진입 → 오버레이 중첩 방지
+        _capturing = true;
+        try
         {
-            SaveAndIndex(result);
-            result.Dispose();
+            var frozen = CaptureService.CaptureFullScreen();
+            using var overlay = new RegionOverlay(frozen);
+            var result = overlay.ShowDialog() == DialogResult.OK ? overlay.Result : null;
+            frozen.Dispose();
+            if (result is not null)
+            {
+                SaveAndIndex(result);
+                result.Dispose();
+            }
         }
+        finally { _capturing = false; }
     }
 
     private void CaptureFull()
     {
-        using var bmp = CaptureService.CaptureFullScreen();
-        SaveAndIndex(bmp);
+        if (_capturing) return;
+        _capturing = true;
+        try
+        {
+            using var bmp = CaptureService.CaptureFullScreen();
+            SaveAndIndex(bmp);
+        }
+        finally { _capturing = false; }
     }
 
     private void SaveAndIndex(Bitmap bmp)
@@ -322,6 +375,8 @@ internal sealed class QuickTrayContext : ApplicationContext
         if (disposing)
         {
             SettingsForm.HotkeysChanged -= OnHotkeysChanged;
+            _updateTimer?.Dispose();
+            _tray.ContextMenuStrip?.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _watcher?.Dispose();

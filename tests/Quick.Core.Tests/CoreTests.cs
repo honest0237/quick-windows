@@ -105,7 +105,7 @@ public class HotkeyTests
     [InlineData(0x33, "3")]
     [InlineData(0x34, "4")]
     [InlineData(0x41, "A")]
-    [InlineData(0x2C, "PrtSc")]
+    [InlineData(0x70, "F1")]
     [InlineData(0x20, "Space")]
     public void Keys_HaveDisplayNames(int vk, string name)
     {
@@ -114,11 +114,16 @@ public class HotkeyTests
     }
 
     [Fact]
+    public void Keys_PrintScreenExcluded()   // WM_KEYUP 로만 와서 캡처 불가 → 광고하지 않음
+        => Assert.False(HotkeyKeys.IsAllowed(0x2C));
+
+    [Fact]
     public void IsValid_RequiresModifierAndKnownKey()
     {
         Assert.True(new Hotkey(HotkeyModifiers.Control, 0x51).IsValid);
         Assert.False(new Hotkey(HotkeyModifiers.None, 0x51).IsValid);      // 수정자 없음
         Assert.False(new Hotkey(HotkeyModifiers.Control, 0x01).IsValid);   // 미허용 키(마우스 버튼)
+        Assert.False(new Hotkey((HotkeyModifiers)16, 0x51).IsValid);       // 정의되지 않은 수정자 비트(손상값)
     }
 
     [Fact]

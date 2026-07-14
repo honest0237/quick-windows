@@ -14,6 +14,7 @@ public sealed class HotkeyManager : NativeWindow, IDisposable
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private const int WM_HOTKEY = 0x0312;
+    private const uint MOD_NOREPEAT = 0x4000;   // 키를 눌러도 자동반복으로 여러 번 안 오게(Win7+)
 
     private readonly Dictionary<int, Action> _actions = new();
     private int _nextId = 1;
@@ -24,7 +25,7 @@ public sealed class HotkeyManager : NativeWindow, IDisposable
     public bool Register(uint modifiers, uint vk, Action action)
     {
         int id = _nextId++;
-        if (RegisterHotKey(Handle, id, modifiers, vk))
+        if (RegisterHotKey(Handle, id, modifiers | MOD_NOREPEAT, vk))
         {
             _actions[id] = action;
             return true;

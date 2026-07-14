@@ -94,14 +94,18 @@ public sealed class SearchWindow : Form
         _results.ItemDrag += OnItemDrag;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Hide(); };
 
-        PositionRightEdge();
+        PositionLeftEdge();
     }
 
-    private void PositionRightEdge()
+    // 캡처 시 스스로 뜰 때 다른 창의 포커스를 뺏지 않도록(맥 선반처럼).
+    // 단축키로 열 때는 아래 ToggleVisibility 에서 명시적으로 Activate/Focus 한다.
+    protected override bool ShowWithoutActivation => true;
+
+    private void PositionLeftEdge()
     {
         var wa = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
         Height = wa.Height - 20;
-        Location = new Point(wa.Right - Width - 12, wa.Top + 10);
+        Location = new Point(wa.Left + 12, wa.Top + 10);
     }
 
     public void ToggleVisibility()
@@ -112,9 +116,10 @@ public sealed class SearchWindow : Form
         }
         else
         {
+            PositionLeftEdge();
             Reload();
             Show();
-            Activate();
+            Activate();          // 사용자가 단축키로 연 경우 → 포커스 가져와 바로 타이핑
             _search.Focus();
             _search.SelectAll();
         }
@@ -200,11 +205,19 @@ public sealed class SearchWindow : Form
         DoDragDrop(data, DragDropEffects.Copy);
     }
 
+    /// <summary>새 스크린샷이 생기면 선반을 왼쪽에 띄워 보여준다(포커스는 뺏지 않음). 맥 선반 동작 대응.</summary>
     public void NotifyNewScreenshot()
     {
-        if (!Visible) return;
-        if (InvokeRequired) { BeginInvoke(Reload); return; }
+        if (InvokeRequired) { BeginInvoke(NotifyNewScreenshot); return; }
+
+        PositionLeftEdge();
         Reload();
+        if (!Visible) Show();          // ShowWithoutActivation=true → 포커스 안 뺏고 등장
+        if (_results.Items.Count > 0)  // 방금 캡처(최상단) 강조
+        {
+            _results.Items[0].Selected = true;
+            _results.Items[0].EnsureVisible();
+        }
     }
 
     protected override void Dispose(bool disposing)

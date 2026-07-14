@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -121,6 +122,7 @@ public sealed class SettingsForm : Form
             conflict, reset, close,
         });
         AcceptButton = close;
+        CancelButton = close;   // Esc 로도 닫힘
     }
 
     private static string Shorten(string path) => path.Length > 26 ? "…" + path[^25..] : path;
@@ -133,16 +135,24 @@ internal sealed class HotkeyBox : TextBox
 
     public event Action? Changed;
 
+    // 코드로만 UI를 구성하므로 디자이너 직렬화 불필요(WinForms WFO1000 해소).
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Hotkey Value
     {
         get => _value;
         set { _value = value; Text = value.Format(); }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int vKey);
+    private static bool Down(int vk) => (GetKeyState(vk) & 0x8000) != 0;
+
     public HotkeyBox()
     {
         ReadOnly = true;
         ShortcutsEnabled = false;
+        ImeMode = ImeMode.Disable;   // 한글 IME가 키를 가로채(VK_PROCESSKEY) 조합을 놓치지 않게
         TextAlign = HorizontalAlignment.Center;
         Cursor = Cursors.Hand;
         Font = new Font("Segoe UI", 9.5F);
@@ -171,14 +181,15 @@ internal sealed class HotkeyBox : TextBox
         if (key is Keys.ControlKey or Keys.ShiftKey or Keys.Menu or Keys.LWin or Keys.RWin or Keys.None)
             return true;
 
-        // Tab/Esc 는 폼 이동/닫기로 넘김
-        if (key is Keys.Tab or Keys.Escape)
+        // Tab/Esc/Enter 는 폼 이동·닫기로 넘김(칸이 키를 삼켜 다이얼로그가 멈춘 듯 보이지 않게)
+        if (key is Keys.Tab or Keys.Escape or Keys.Return)
             return base.ProcessCmdKey(ref msg, keyData);
 
         var mods = HotkeyModifiers.None;
         if ((keyData & Keys.Control) == Keys.Control) mods |= HotkeyModifiers.Control;
         if ((keyData & Keys.Alt) == Keys.Alt) mods |= HotkeyModifiers.Alt;
         if ((keyData & Keys.Shift) == Keys.Shift) mods |= HotkeyModifiers.Shift;
+        if (Down(0x5B) || Down(0x5C)) mods |= HotkeyModifiers.Win;   // VK_LWIN/RWIN
 
         if (mods == HotkeyModifiers.None)
         {

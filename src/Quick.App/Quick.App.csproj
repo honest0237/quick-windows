@@ -11,6 +11,10 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Quick</AssemblyName>
     <RootNamespace>Quick.App</RootNamespace>
+    <!-- DPI: 단일 모니터·균일 배율에선 SystemAware가 선명·정확. 전체화면 오버레이는 클라이언트=물리 픽셀을
+         가정하므로 PerMonitorV2(혼합 DPI)로 가면 좌표 재설계가 필요 → 의식적으로 SystemAware 유지.
+         한계: 서로 다른 배율의 멀티모니터에서 보조 화면 캡처가 흐릴 수 있음. -->
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
     <Version>0.4.0</Version>
     <ApplicationIcon>quick.ico</ApplicationIcon>
   </PropertyGroup>

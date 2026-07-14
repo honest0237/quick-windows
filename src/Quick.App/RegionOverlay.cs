@@ -140,8 +140,9 @@ public sealed class RegionOverlay : Form
         using (var inner = new Pen(Color.White, 1))
             g.DrawRectangle(inner, destRect);
 
-        // 돋보기 중앙 십자(현재 픽셀)
-        int cx = lx + size / 2, cy = ly + size / 2;
+        // 돋보기 십자 = 실제 커서 픽셀 위치(가장자리에서 srcRect가 클램프돼도 정확히 표시)
+        int cx = lx + (p.X - sx) * mag + mag / 2;
+        int cy = ly + (p.Y - sy) * mag + mag / 2;
         using (var cross = new Pen(Color.FromArgb(220, 30, 144, 255)))
         {
             g.DrawLine(cross, lx, cy, lx + size, cy);
@@ -189,16 +190,52 @@ public sealed class RegionOverlay : Form
         if (e.Button != MouseButtons.Left) return;
         _start = e.Location;
         _dragging = true;
+        Invalidate();   // 유휴 시 그린 십자선·힌트를 한 번에 지움(드래그 중엔 부분 갱신)
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
+        var prevCursor = _cursor;
+        var prevSel = _sel;
         _cursor = e.Location;
+
         if (_dragging)
+        {
             _sel = Rectangle.FromLTRB(
                 Math.Min(_start.X, e.X), Math.Min(_start.Y, e.Y),
                 Math.Max(_start.X, e.X), Math.Max(_start.Y, e.Y));
-        Invalidate();
+
+            // 드래그 중(십자선 없음): 돋보기 박스 + 선택영역 변화만 무효화 → 전체 재블릿 방지
+            Invalidate(CursorBox(prevCursor));
+            Invalidate(CursorBox(_cursor));
+            var selDirty = prevSel.IsEmpty ? _sel : Rectangle.Union(prevSel, _sel);
+            Invalidate(Rectangle.Inflate(selDirty, 60, 60));
+        }
+        else
+        {
+            // 유휴(십자선이 화면 가로지름): 얇은 십자 스트립 + 돋보기 박스 + 힌트 밴드만
+            InvalidateCross(prevCursor);
+            InvalidateCross(_cursor);
+            Invalidate(CursorBox(prevCursor));
+            Invalidate(CursorBox(_cursor));
+            Invalidate(HintBand(prevCursor));
+            Invalidate(HintBand(_cursor));
+        }
+    }
+
+    // 돋보기+판독이 어느 방향으로 뒤집혀도 덮는 넉넉한 커서 주변 박스
+    private static Rectangle CursorBox(Point p) => new(p.X - 210, p.Y - 210, 420, 470);
+
+    private void InvalidateCross(Point p)
+    {
+        Invalidate(new Rectangle(0, p.Y - 2, Width, 5));
+        Invalidate(new Rectangle(p.X - 2, 0, 5, Height));
+    }
+
+    private Rectangle HintBand(Point p)
+    {
+        var m = MonitorClientRect(p);
+        return new Rectangle(m.Left, m.Top + 24, m.Width, 72);
     }
 
     protected override void OnMouseUp(MouseEventArgs e)

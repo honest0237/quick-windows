@@ -42,7 +42,14 @@ public sealed class Settings
 
     public void Save()
     {
-        try { File.WriteAllText(FilePath(), JsonSerializer.Serialize(this)); }
+        // 원자적 쓰기: 임시 파일에 쓴 뒤 교체 → 도중 크래시로 파일이 깨져 전체 설정이 초기화되는 것 방지
+        try
+        {
+            var path = FilePath();
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(this));
+            File.Move(tmp, path, overwrite: true);
+        }
         catch { /* 무시 */ }
     }
 

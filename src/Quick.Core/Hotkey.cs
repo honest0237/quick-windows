@@ -17,9 +17,14 @@ public enum HotkeyModifiers
 /// <summary>전역 단축키 정의 — 수정자 + 가상키(VK). 순수 로직(포맷·검증)만 Core에 두어 어디서나 테스트.</summary>
 public sealed record Hotkey(HotkeyModifiers Modifiers, int VirtualKey)
 {
-    /// <summary>전역 단축키로 안전하려면 수정자 1개 이상 + 허용된 키여야 함(맨키 등록 방지).</summary>
+    private const HotkeyModifiers AllModifiers =
+        HotkeyModifiers.Alt | HotkeyModifiers.Control | HotkeyModifiers.Shift | HotkeyModifiers.Win;
+
+    /// <summary>전역 단축키로 안전하려면 수정자 1개 이상(정의된 비트만) + 허용된 키여야 함(맨키·손상값 방지).</summary>
     public bool IsValid =>
-        Modifiers != HotkeyModifiers.None && HotkeyKeys.Name(VirtualKey) is not null;
+        Modifiers != HotkeyModifiers.None &&
+        (Modifiers & ~AllModifiers) == 0 &&
+        HotkeyKeys.Name(VirtualKey) is not null;
 
     /// <summary>"Ctrl+Shift+Q" 형태로 표시.</summary>
     public string Format()
@@ -53,7 +58,7 @@ public static class HotkeyKeys
         for (int n = 0; n <= 9; n++) d[0x30 + n] = n.ToString();            // 0–9  0x30–0x39
         for (int f = 1; f <= 12; f++) d[0x70 + (f - 1)] = "F" + f;           // F1–F12 0x70–0x7B
         d[0x20] = "Space";
-        d[0x2C] = "PrtSc";     // VK_SNAPSHOT (Print Screen)
+        // PrintScreen(0x2C)은 WM_KEYUP 로만 와서 HotkeyBox(ProcessCmdKey)로는 못 잡으므로 제외
         d[0x2D] = "Insert";
         d[0x2E] = "Delete";
         d[0x24] = "Home";
