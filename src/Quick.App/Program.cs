@@ -18,10 +18,15 @@ internal static class Program
 internal sealed class QuickTrayContext : ApplicationContext
 {
     private readonly NotifyIcon _tray;
+    private readonly SearchWindow _search;
+    private readonly HotkeyManager _hotkey;
     private FileSystemWatcher? _watcher;
 
     public QuickTrayContext()
     {
+        _search = new SearchWindow();
+        _hotkey = new HotkeyManager(() => _search.ToggleVisibility());
+
         _tray = new NotifyIcon
         {
             Icon = System.Drawing.SystemIcons.Application,
@@ -37,6 +42,7 @@ internal sealed class QuickTrayContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
+        menu.Items.Add($"검색 열기  ({HotkeyManager.Label})", null, (_, _) => _search.ToggleVisibility());
         menu.Items.Add("스크린샷 폴더 열기", null, (_, _) =>
         {
             try { System.Diagnostics.Process.Start("explorer.exe", ScreenshotDir()); } catch { }
@@ -88,6 +94,8 @@ internal sealed class QuickTrayContext : ApplicationContext
             _tray.Visible = false;
             _tray.Dispose();
             _watcher?.Dispose();
+            _hotkey.Dispose();
+            _search.Dispose();
         }
         base.Dispose(disposing);
     }
