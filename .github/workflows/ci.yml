@@ -27,3 +27,13 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Build solution
         run: dotnet build Quick.slnx -c Release
+
+      # 실행 가능한 exe 생성 → 아티팩트로 다운로드해 Windows에서 직접 테스트
+      - name: Publish self-contained exe
+        run: dotnet publish src/Quick.App/Quick.App.csproj -c Release -r win-x64 --self-contained -o publish
+
+      - name: Upload Windows app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Quick-Windows
+          path: publish/
