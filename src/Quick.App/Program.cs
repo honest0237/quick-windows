@@ -28,6 +28,7 @@ internal sealed class QuickTrayContext : ApplicationContext
     private bool _capturing;               // 캡처 재진입 가드(오버레이 중 핫키 재진입 방지)
     private System.Windows.Forms.Timer? _updateTimer;   // 실행 중 주기적 업데이트 확인
     private string? _notifiedVersion;      // 같은 버전 중복 풍선 방지
+    private bool _checking;                // 업데이트 확인 재진입 가드
     private bool _searchHkOk = true, _regionHkOk = true, _fullHkOk = true;   // 단축키 등록 성공 여부(메뉴 표기용)
 
     public QuickTrayContext()
@@ -45,6 +46,12 @@ internal sealed class QuickTrayContext : ApplicationContext
             Text = "Quick",
         };
         _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) InstallUpdate(); };
+        _tray.MouseClick += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            _search.ToggleVisibility();   // 트레이 좌클릭 = 선반 열기/닫기
+            _ = CheckUpdateAsync();        // 동시에 즉시 업데이트 확인
+        };
 
         RegisterHotkeys();                          // 설정값으로 전역 단축키 등록(+ 메뉴 갱신)
         SettingsForm.HotkeysChanged += OnHotkeysChanged;   // 설정에서 바꾸면 즉시 재등록
@@ -138,7 +145,10 @@ internal sealed class QuickTrayContext : ApplicationContext
 
     private async Task CheckUpdateAsync()
     {
-        await _updater.CheckAsync();
+        if (_checking) return;   // 중복 확인 방지(좌클릭 연타 등)
+        _checking = true;
+        try { await _updater.CheckAsync(); }
+        finally { _checking = false; }
         if (!_updater.UpdateAvailable) return;
         void OnUi()
         {
@@ -155,10 +165,11 @@ internal sealed class QuickTrayContext : ApplicationContext
         else OnUi();
     }
 
-    /// <summary>실행 중에도 30분마다 업데이트를 확인 → 새 버전이 나오면 재시작 없이 알림.</summary>
+    /// <summary>실행 중에도 15분마다 업데이트를 확인 → 새 버전이 나오면 재시작 없이 알림.
+    /// (추가로 트레이 좌클릭 시에도 즉시 확인.)</summary>
     private void StartUpdateTimer()
     {
-        _updateTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 15 * 60 * 1000 };
         _updateTimer.Tick += (_, _) => _ = CheckUpdateAsync();
         _updateTimer.Start();
     }
