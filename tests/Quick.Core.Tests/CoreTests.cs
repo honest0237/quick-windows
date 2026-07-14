@@ -87,3 +87,45 @@ public class ScreenshotNameTests
     public void Matches(string name, bool dedicated, bool expected) =>
         Assert.Equal(expected, ScreenshotName.Matches(name, dedicated));
 }
+
+public class HotkeyTests
+{
+    [Fact]
+    public void Format_OrdersModifiersAndNamesKey()
+    {
+        var hk = new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x51); // Q
+        Assert.Equal("Ctrl+Shift+Q", hk.Format());
+        Assert.Equal("Ctrl+Shift+Q", hk.ToString());
+
+        Assert.Equal("Ctrl+Alt+Shift+Win+F5",
+            new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift | HotkeyModifiers.Win, 0x74).Format());
+    }
+
+    [Theory]
+    [InlineData(0x33, "3")]
+    [InlineData(0x34, "4")]
+    [InlineData(0x41, "A")]
+    [InlineData(0x2C, "PrtSc")]
+    [InlineData(0x20, "Space")]
+    public void Keys_HaveDisplayNames(int vk, string name)
+    {
+        Assert.Equal(name, HotkeyKeys.Name(vk));
+        Assert.True(HotkeyKeys.IsAllowed(vk));
+    }
+
+    [Fact]
+    public void IsValid_RequiresModifierAndKnownKey()
+    {
+        Assert.True(new Hotkey(HotkeyModifiers.Control, 0x51).IsValid);
+        Assert.False(new Hotkey(HotkeyModifiers.None, 0x51).IsValid);      // 수정자 없음
+        Assert.False(new Hotkey(HotkeyModifiers.Control, 0x01).IsValid);   // 미허용 키(마우스 버튼)
+    }
+
+    [Fact]
+    public void Equality_IsValueBased_ForConflictDetection()
+    {
+        var a = new Hotkey(HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x33);
+        var b = new Hotkey(HotkeyModifiers.Shift | HotkeyModifiers.Control, 0x33);
+        Assert.Equal(a, b);   // 중복 단축키 감지에 사용
+    }
+}

@@ -32,9 +32,6 @@ internal sealed class QuickTrayContext : ApplicationContext
         _ui = SynchronizationContext.Current;
 
         _hotkey = new HotkeyManager();
-        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.VkQ, () => _search.ToggleVisibility());
-        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.Vk4, CaptureRegion);
-        _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.Vk3, CaptureFull);
 
         _tray = new NotifyIcon
         {
@@ -43,7 +40,9 @@ internal sealed class QuickTrayContext : ApplicationContext
             Text = "Quick",
         };
         _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) InstallUpdate(); };
-        RefreshMenu();
+
+        RegisterHotkeys();                          // 설정값으로 전역 단축키 등록(+ 메뉴 갱신)
+        SettingsForm.HotkeysChanged += OnHotkeysChanged;   // 설정에서 바꾸면 즉시 재등록
 
         ShowWelcomeIfFirstRun();
         CheckPendingUpdate();
@@ -60,10 +59,11 @@ internal sealed class QuickTrayContext : ApplicationContext
             menu.Items.Add($"⬆ 업데이트 설치: v{_updater.LatestVersion}", null, (_, _) => InstallUpdate());
             menu.Items.Add(new ToolStripSeparator());
         }
-        menu.Items.Add("영역 캡처  (Ctrl+Shift+4)", null, (_, _) => CaptureRegion());
-        menu.Items.Add("전체 캡처  (Ctrl+Shift+3)", null, (_, _) => CaptureFull());
+        var s = Settings.Current;
+        menu.Items.Add($"영역 캡처  ({s.CaptureRegionHotkey.Format()})", null, (_, _) => CaptureRegion());
+        menu.Items.Add($"전체 캡처  ({s.CaptureFullHotkey.Format()})", null, (_, _) => CaptureFull());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("검색 열기  (Ctrl+Shift+Q)", null, (_, _) => _search.ToggleVisibility());
+        menu.Items.Add($"검색 열기  ({s.SearchHotkey.Format()})", null, (_, _) => _search.ToggleVisibility());
         menu.Items.Add("설정…", null, (_, _) => OpenSettings());
         menu.Items.Add("스크린샷 폴더 열기", null, (_, _) =>
         {
@@ -72,6 +72,36 @@ internal sealed class QuickTrayContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => ExitThread());
         _tray.ContextMenuStrip = menu;
+    }
+
+    /// <summary>설정값으로 전역 단축키를 (재)등록. 충돌·무효 시 트레이 알림.</summary>
+    private void RegisterHotkeys()
+    {
+        _hotkey.UnregisterAll();
+        var s = Settings.Current;
+        var failed = new List<string>();
+
+        void Reg(Hotkey? hk, Action act, string label)
+        {
+            if (hk is null || !hk.IsValid || !_hotkey.Register(hk, act))
+                failed.Add($"{label}({(hk is null ? "-" : hk.Format())})");
+        }
+
+        Reg(s.SearchHotkey, () => _search.ToggleVisibility(), "패널");
+        Reg(s.CaptureRegionHotkey, CaptureRegion, "영역");
+        Reg(s.CaptureFullHotkey, CaptureFull, "전체");
+
+        RefreshMenu();   // 메뉴의 단축키 표기 갱신
+
+        if (failed.Count > 0)
+            _tray.ShowBalloonTip(4000, "단축키 등록 실패",
+                $"{string.Join(", ", failed)} — 다른 프로그램이 쓰는 조합일 수 있어요.", ToolTipIcon.Warning);
+    }
+
+    private void OnHotkeysChanged()
+    {
+        if (_ui is not null) _ui.Post(_ => RegisterHotkeys(), null);
+        else RegisterHotkeys();
     }
 
     private static string AppDataDir()
@@ -291,6 +321,7 @@ internal sealed class QuickTrayContext : ApplicationContext
     {
         if (disposing)
         {
+            SettingsForm.HotkeysChanged -= OnHotkeysChanged;
             _tray.Visible = false;
             _tray.Dispose();
             _watcher?.Dispose();
