@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # 순수 코어(검색·색인 로직) — 어느 OS에서나 빌드+테스트
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test Quick.Core
+        run: dotnet test tests/Quick.Core.Tests
+
+  # Windows 앱(WinForms 트레이 + Windows.Media.Ocr) — 실제 Windows 러너에서 빌드 검증
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build solution
+        run: dotnet build Quick.sln -c Release
