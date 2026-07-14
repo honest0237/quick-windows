@@ -33,6 +33,7 @@ internal sealed class QuickTrayContext : ApplicationContext
     public QuickTrayContext()
     {
         _search = new SearchWindow();          // Form 생성 → WinForms 동기화 컨텍스트 설치
+        _ = _search.Handle;                    // UI 스레드에서 핸들 강제 생성 → 워처 스레드의 InvokeRequired가 확실히 true
         _ui = SynchronizationContext.Current;
 
         _hotkey = new HotkeyManager();
@@ -359,7 +360,11 @@ internal sealed class QuickTrayContext : ApplicationContext
                 SaveAndIndex(editor.RenderedResult);
                 editor.RenderedResult.Dispose();
             }
-            // '복사'만 하고 닫으면 저장하지 않음(캡처도구와 동일)
+            else if (Settings.Current.AutoCopy)
+            {
+                // 저장 안 하고 닫아도(Esc/X) 최소한 원본은 클립보드에(조용한 소실 방지)
+                try { Clipboard.SetImage(bmp); } catch { /* 무시 */ }
+            }
         }
         else
         {

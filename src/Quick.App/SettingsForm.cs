@@ -23,6 +23,7 @@ public sealed class SettingsForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         Icon = AppIcon.Value;
+        BackColor = Theme.Bg;
 
         var version = new Label
         {
@@ -113,6 +114,7 @@ public sealed class SettingsForm : Form
         fullBox.Changed += ApplyHotkeys;
 
         var reset = new Button { Text = "단축키 기본값", Location = new Point(20, 356), Size = new Size(130, 30) };
+        Theme.FlatButton(reset);
         reset.Click += (_, _) =>
         {
             searchBox.Value = Settings.DefaultSearch;
@@ -122,6 +124,7 @@ public sealed class SettingsForm : Form
         };
 
         var close = new Button { Text = "닫기", Location = new Point(300, 356), Size = new Size(80, 30), DialogResult = DialogResult.OK };
+        Theme.FlatButton(close, accent: true);
         close.Click += (_, _) => Close();
 
         Controls.AddRange(new Control[]

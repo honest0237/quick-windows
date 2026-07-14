@@ -27,8 +27,10 @@ public static class CaptureService
         Directory.CreateDirectory(directory);
         var jpeg = format.Equals("jpeg", StringComparison.OrdinalIgnoreCase);
         var ext = jpeg ? "jpg" : "png";
-        var name = $"Screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.{ext}";
-        var path = Path.Combine(directory, name);
+        var ts = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
+        var path = Path.Combine(directory, $"Screenshot {ts}.{ext}");
+        for (int n = 2; File.Exists(path); n++)   // 같은 초 재캡처 시 덮어쓰기 방지
+            path = Path.Combine(directory, $"Screenshot {ts} ({n}).{ext}");
         bmp.Save(path, jpeg ? ImageFormat.Jpeg : ImageFormat.Png);
         return path;
     }

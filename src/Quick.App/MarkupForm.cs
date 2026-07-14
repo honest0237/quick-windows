@@ -25,25 +25,20 @@ public sealed class MarkupForm : Form
         _canvas = new MarkupCanvas(baseImage);
 
         var wa = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
-        int w = Math.Min(baseImage.Width + 18, (int)(wa.Width * 0.9));
-        int h = Math.Min(baseImage.Height + 96, (int)(wa.Height * 0.9));
-        ClientSize = new Size(Math.Max(w, 640), Math.Max(h, 360));
+        int w = Math.Min(baseImage.Width + 18, (int)(wa.Width * 0.92));
+        int h = Math.Min(baseImage.Height + 160, (int)(wa.Height * 0.92));
+        ClientSize = new Size(Math.Max(w, 560), Math.Max(h, 380));
+        MinimumSize = new Size(520, 380);
+        BackColor = Theme.Bg;
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            Height = 46,
-            Padding = new Padding(6, 7, 6, 6),
-            WrapContents = false,
-            AutoScroll = false,
-            BackColor = SystemColors.Control,
-        };
+        // ── 상단 도구 툴바(좁으면 다음 줄로 래핑) ──
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = false, BackColor = Theme.Bg, Padding = new Padding(8, 8, 8, 8) };
 
         Button ToolBtn(string text, MarkupTool tool)
         {
-            var b = new Button { Text = text, AutoSize = false, Width = 64, Height = 30, FlatStyle = FlatStyle.System, Margin = new Padding(2, 0, 2, 0) };
+            var b = new Button { Text = text, AutoSize = false, Width = 72, Height = 30, Margin = new Padding(2, 2, 2, 2), Tag = tool };
+            Theme.FlatButton(b);
             b.Click += (_, _) => { _canvas.Tool = tool; HighlightTool(tool); };
-            b.Tag = tool;
             return b;
         }
 
@@ -58,45 +53,64 @@ public sealed class MarkupForm : Form
         };
         foreach (var b in _toolButtons) toolbar.Controls.Add(b);
 
-        toolbar.Controls.Add(new Label { Text = "", Width = 8 });
-        foreach (var c in new[] { Color.Red, Color.Yellow, Color.LimeGreen, Color.DodgerBlue, Color.Black, Color.White })
+        toolbar.Controls.Add(new Label { Text = "", Width = 10 });
+        foreach (var c in new[] { Color.Red, Color.Orange, Color.Gold, Color.LimeGreen, Color.DodgerBlue, Color.Black, Color.White })
         {
-            var sw = new Button { BackColor = c, Width = 24, Height = 24, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 3, 2, 3) };
-            sw.FlatAppearance.BorderColor = Color.Gray;
-            sw.Click += (_, _) => { _canvas.StrokeColor = c; };
+            var sw = new Button { BackColor = c, Width = 26, Height = 26, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 4, 2, 4) };
+            sw.FlatAppearance.BorderColor = Theme.Border;
+            sw.FlatAppearance.BorderSize = 1;
+            sw.Click += (_, _) => _canvas.StrokeColor = c;
             toolbar.Controls.Add(sw);
         }
 
-        var thick = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 74, Margin = new Padding(6, 2, 2, 2) };
+        var thick = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 76, Margin = new Padding(8, 4, 2, 2) };
         thick.Items.AddRange(new object[] { "얇게", "보통", "굵게" });
         thick.SelectedIndex = 1;
         thick.SelectedIndexChanged += (_, _) => _canvas.Thickness = thick.SelectedIndex switch { 0 => 2, 2 => 8, _ => 4 };
         toolbar.Controls.Add(thick);
 
-        var undo = new Button { Text = "실행취소", Width = 68, Height = 30, FlatStyle = FlatStyle.System, Margin = new Padding(8, 0, 2, 0) };
+        // ── 하단 액션 바(항상 보임: 좁은 캡처에서도 복사/저장 접근 가능) ──
+        var undo = new Button { Text = "실행취소", Width = 78, Height = 30, Location = new Point(10, 9) };
+        Theme.FlatButton(undo);
         undo.Click += (_, _) => _canvas.Undo();
-        toolbar.Controls.Add(undo);
 
-        var ocr = new Button { Text = "텍스트 복사", Width = 88, Height = 30, FlatStyle = FlatStyle.System, Margin = new Padding(12, 0, 2, 0) };
+        var ocr = new Button { Text = "텍스트 복사", Width = 94, Height = 30, Margin = new Padding(4, 0, 0, 0) };
+        Theme.FlatButton(ocr);
         ocr.Click += async (_, _) => await CopyTextAsync();
-        toolbar.Controls.Add(ocr);
 
-        var copy = new Button { Text = "복사", Width = 60, Height = 30, FlatStyle = FlatStyle.System, Margin = new Padding(2, 0, 2, 0) };
+        var copy = new Button { Text = "복사", Width = 64, Height = 30, Margin = new Padding(4, 0, 0, 0) };
+        Theme.FlatButton(copy);
         copy.Click += (_, _) => CopyImage();
-        toolbar.Controls.Add(copy);
 
-        var save = new Button { Text = "저장", Width = 60, Height = 30, FlatStyle = FlatStyle.System, Margin = new Padding(2, 0, 2, 0) };
+        var save = new Button { Text = "저장", Width = 74, Height = 30, Margin = new Padding(4, 0, 0, 0) };
+        Theme.FlatButton(save, accent: true);
         save.Click += (_, _) => SaveAndClose();
-        toolbar.Controls.Add(save);
 
-        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(40, 40, 40) };
+        var rightFlow = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
+        rightFlow.Controls.Add(save);   // 오른쪽 끝
+        rightFlow.Controls.Add(copy);
+        rightFlow.Controls.Add(ocr);
+
+        var actionBar = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Padding = new Padding(8, 9, 8, 9) };
+        actionBar.Controls.Add(rightFlow);
+        actionBar.Controls.Add(undo);
+
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(38, 40, 46) };
         scroll.Controls.Add(_canvas);
 
-        _status = new Label { Dock = DockStyle.Bottom, Height = 22, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0), ForeColor = SystemColors.GrayText, Text = "도구를 고르고 이미지 위에 그리세요 · Ctrl+Z 실행취소" };
+        _status = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0), ForeColor = Theme.SubText, Font = Theme.Small, BackColor = Theme.Bg, Text = "도구를 고르고 이미지 위에 드래그 · Ctrl+Z 실행취소" };
 
-        Controls.Add(scroll);
-        Controls.Add(_status);
-        Controls.Add(toolbar);
+        // 결정적 배치(도킹 순서 모호함 회피): 툴바 / 캔버스 / 액션바 / 상태
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Theme.Bg };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.Controls.Add(toolbar, 0, 0);
+        root.Controls.Add(scroll, 0, 1);
+        root.Controls.Add(actionBar, 0, 2);
+        root.Controls.Add(_status, 0, 3);
+        Controls.Add(root);
 
         AcceptButton = save;
         HighlightTool(MarkupTool.Arrow);
@@ -112,7 +126,11 @@ public sealed class MarkupForm : Form
     private void HighlightTool(MarkupTool tool)
     {
         foreach (var b in _toolButtons)
-            b.BackColor = (MarkupTool)b.Tag! == tool ? Color.FromArgb(210, 228, 255) : SystemColors.Control;
+        {
+            bool sel = (MarkupTool)b.Tag! == tool;
+            b.BackColor = sel ? Theme.CardSelected : Color.White;
+            b.FlatAppearance.BorderColor = sel ? Theme.Accent : Theme.Border;
+        }
     }
 
     private async Task CopyTextAsync()

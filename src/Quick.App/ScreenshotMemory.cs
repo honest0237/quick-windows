@@ -93,7 +93,12 @@ public sealed class ScreenshotMemory
     {
         List<MemoryEntry> snapshot;
         lock (_lock) snapshot = new(_entries);
-        try { File.WriteAllText(IndexPath, JsonSerializer.Serialize(snapshot)); }
+        try
+        {
+            var tmp = IndexPath + ".tmp";   // 원자적: 임시 파일 → 교체(크래시로 기록 전체 소실 방지)
+            File.WriteAllText(tmp, JsonSerializer.Serialize(snapshot));
+            File.Move(tmp, IndexPath, overwrite: true);
+        }
         catch { /* 무시 */ }
     }
 
