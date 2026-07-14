@@ -21,11 +21,15 @@ internal sealed class QuickTrayContext : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly SearchWindow _search;
     private readonly HotkeyManager _hotkey;
+    private readonly UpdateService _updater = new();
+    private readonly SynchronizationContext? _ui;
     private FileSystemWatcher? _watcher;
 
     public QuickTrayContext()
     {
-        _search = new SearchWindow();
+        _search = new SearchWindow();          // Form 생성 → WinForms 동기화 컨텍스트 설치
+        _ui = SynchronizationContext.Current;
+
         _hotkey = new HotkeyManager();
         _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.VkQ, () => _search.ToggleVisibility());
         _hotkey.Register(HotkeyManager.ModControl | HotkeyManager.ModShift, HotkeyManager.Vk4, CaptureRegion);
@@ -35,17 +39,25 @@ internal sealed class QuickTrayContext : ApplicationContext
         {
             Icon = System.Drawing.SystemIcons.Application,
             Visible = true,
-            Text = "Quick — 스크린샷 메모리",
-            ContextMenuStrip = BuildMenu(),
+            Text = "Quick",
         };
+        _tray.BalloonTipClicked += (_, _) => { if (_updater.UpdateAvailable) _updater.OpenReleasePage(); };
+        RefreshMenu();
 
+        ShowWelcomeIfFirstRun();
         StartWatching();
         _ = ScreenshotMemory.Shared.BackfillAsync(ScreenshotDir(), IsDedicated(ScreenshotDir()));
+        _ = CheckUpdateAsync();
     }
 
-    private ContextMenuStrip BuildMenu()
+    private void RefreshMenu()
     {
         var menu = new ContextMenuStrip();
+        if (_updater.UpdateAvailable)
+        {
+            menu.Items.Add($"⬆ 업데이트 있음: v{_updater.LatestVersion}", null, (_, _) => _updater.OpenReleasePage());
+            menu.Items.Add(new ToolStripSeparator());
+        }
         menu.Items.Add("영역 캡처  (Ctrl+Shift+4)", null, (_, _) => CaptureRegion());
         menu.Items.Add("전체 캡처  (Ctrl+Shift+3)", null, (_, _) => CaptureFull());
         menu.Items.Add(new ToolStripSeparator());
@@ -56,7 +68,36 @@ internal sealed class QuickTrayContext : ApplicationContext
         });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => ExitThread());
-        return menu;
+        _tray.ContextMenuStrip = menu;
+    }
+
+    private static string AppDataDir()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Quick");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private void ShowWelcomeIfFirstRun()
+    {
+        var marker = Path.Combine(AppDataDir(), ".welcomed");
+        if (File.Exists(marker)) return;
+        try { File.WriteAllText(marker, DateTime.Now.ToString("o")); } catch { }
+        using var welcome = new WelcomeForm();
+        welcome.ShowDialog();
+    }
+
+    private async Task CheckUpdateAsync()
+    {
+        await _updater.CheckAsync();
+        if (!_updater.UpdateAvailable) return;
+        void OnUi()
+        {
+            RefreshMenu();
+            _tray.ShowBalloonTip(5000, "Quick 업데이트", $"새 버전 v{_updater.LatestVersion} 이(가) 있습니다. 눌러서 받기", ToolTipIcon.Info);
+        }
+        if (_ui is not null) _ui.Post(_ => OnUi(), null);
+        else OnUi();
     }
 
     /// <summary>Windows 기본 스크린샷 폴더: Pictures\Screenshots (Win+PrtScn). 없으면 Desktop.</summary>
