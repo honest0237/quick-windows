@@ -38,6 +38,15 @@ public sealed class SettingsForm : Form
         var sound = new CheckBox { Text = "캡처 시 소리", Checked = s.SoundOnCapture, AutoSize = true, Location = new Point(20, 86) };
         sound.CheckedChanged += (_, _) => { s.SoundOnCapture = sound.Checked; s.Save(); };
 
+        var editorChk = new CheckBox { Text = "캡처 후 편집기 열기", Checked = s.OpenEditorAfterCapture, AutoSize = true, Location = new Point(200, 58) };
+        editorChk.CheckedChanged += (_, _) => { s.OpenEditorAfterCapture = editorChk.Checked; s.Save(); };
+
+        var delayLbl = new Label { Text = "지연 캡처", ForeColor = SystemColors.GrayText, AutoSize = true, Location = new Point(200, 90) };
+        var delay = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(268, 86), Width = 116 };
+        delay.Items.AddRange(new object[] { "없음", "3초", "5초" });
+        delay.SelectedIndex = s.CaptureDelaySeconds switch { 3 => 1, 5 => 2, _ => 0 };
+        delay.SelectedIndexChanged += (_, _) => { s.CaptureDelaySeconds = delay.SelectedIndex switch { 1 => 3, 2 => 5, _ => 0 }; s.Save(); };
+
         var fmtLabel = new Label { Text = "저장 형식", ForeColor = SystemColors.GrayText, AutoSize = true, Location = new Point(20, 122) };
         var fmt = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(120, 118), Width = 120 };
         fmt.Items.AddRange(new object[] { "PNG", "JPEG" });
@@ -117,7 +126,7 @@ public sealed class SettingsForm : Form
 
         Controls.AddRange(new Control[]
         {
-            version, autoCopy, sound, fmtLabel, fmt, dirLabel, dirVal, dirBtn,
+            version, autoCopy, sound, editorChk, delayLbl, delay, fmtLabel, fmt, dirLabel, dirVal, dirBtn,
             hkHeader, searchLbl, regionLbl, fullLbl, searchBox, regionBox, fullBox,
             conflict, reset, close,
         });

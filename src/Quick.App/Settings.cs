@@ -10,6 +10,8 @@ public sealed class Settings
     public bool SoundOnCapture { get; set; } = true;   // 캡처 시 소리
     public string Format { get; set; } = "png";        // png | jpeg
     public string SaveDirectory { get; set; } = "";    // 빈값 = 기본(Pictures\Screenshots)
+    public bool OpenEditorAfterCapture { get; set; } = false;   // 캡처 후 마크업 편집기 열기
+    public int CaptureDelaySeconds { get; set; } = 0;           // 지연 캡처(0/3/5초)
 
     // 사용자 지정 전역 단축키 (기본값 = 기존 조합). VK: Q=0x51, 4=0x34, 3=0x33
     public Hotkey SearchHotkey { get; set; } = new(HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x51);

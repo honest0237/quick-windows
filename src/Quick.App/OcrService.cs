@@ -30,4 +30,17 @@ public static class OcrService
             return "";
         }
     }
+
+    /// <summary>메모리 비트맵 OCR(편집기 '텍스트 복사'용) — 임시 파일로 저장해 기존 경로 재사용.</summary>
+    public static async Task<string> RecognizeAsync(System.Drawing.Bitmap bmp)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"quick-ocr-{Guid.NewGuid():N}.png");
+        try
+        {
+            bmp.Save(tmp, System.Drawing.Imaging.ImageFormat.Png);
+            return await RecognizeAsync(tmp);
+        }
+        catch { return ""; }
+        finally { try { File.Delete(tmp); } catch { /* 무시 */ } }
+    }
 }

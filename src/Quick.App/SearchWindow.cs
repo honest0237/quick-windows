@@ -13,6 +13,7 @@ public sealed class SearchWindow : Form
     private readonly ListView _results;
     private readonly ImageList _thumbs;
     private readonly System.Windows.Forms.Timer _debounce;
+    private readonly ContextMenuStrip _itemMenu;
 
     public SearchWindow()
     {
@@ -90,9 +91,16 @@ public sealed class SearchWindow : Form
         _debounce.Tick += (_, _) => { _debounce.Stop(); Reload(); };
 
         _search.TextChanged += (_, _) => { _debounce.Stop(); _debounce.Start(); };
-        _results.DoubleClick += (_, _) => OpenSelected();
+        _results.DoubleClick += (_, _) => EditSelected();   // 더블클릭 → 편집기(핵심)
         _results.ItemDrag += OnItemDrag;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Hide(); };
+
+        _itemMenu = new ContextMenuStrip();
+        _itemMenu.Items.Add("편집", null, (_, _) => EditSelected());
+        _itemMenu.Items.Add("텍스트 복사", null, (_, _) => CopyTextSelected());
+        _itemMenu.Items.Add("파일 열기", null, (_, _) => OpenSelected());
+        _itemMenu.Items.Add("폴더에서 보기", null, (_, _) => RevealInFolder());
+        _results.ContextMenuStrip = _itemMenu;
 
         PositionLeftEdge();
     }
@@ -159,7 +167,7 @@ public sealed class SearchWindow : Form
         {
             var item = new ListViewItem(new[] { entry.Title, entry.Date.LocalDateTime.ToString("M/d HH:mm") })
             {
-                Tag = entry.Path,
+                Tag = entry,   // MemoryEntry (경로 + OCR 텍스트)
             };
             var thumb = LoadThumbnail(entry.Path);
             if (thumb is not null)
@@ -186,8 +194,60 @@ public sealed class SearchWindow : Form
         }
     }
 
-    private string? SelectedPath() =>
-        _results.SelectedItems.Count > 0 ? _results.SelectedItems[0].Tag as string : null;
+    private MemoryEntry? SelectedEntry() =>
+        _results.SelectedItems.Count > 0 ? _results.SelectedItems[0].Tag as MemoryEntry : null;
+
+    private string? SelectedPath() => SelectedEntry()?.Path;
+
+    /// <summary>선반 항목을 마크업 편집기로 연다. 저장 시 편집본을 새 파일로 저장·색인.</summary>
+    private void EditSelected()
+    {
+        var path = SelectedPath();
+        if (path is null || !File.Exists(path)) return;
+
+        Bitmap bmp;
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+            using var img = Image.FromStream(fs);
+            bmp = new Bitmap(img);
+        }
+        catch { return; }
+
+        using (bmp)
+        using (var editor = new MarkupForm(bmp))
+        {
+            if (editor.ShowDialog(this) == DialogResult.OK && editor.RenderedResult is not null)
+            {
+                using var res = editor.RenderedResult;
+                var s = Settings.Current;
+                var saved = CaptureService.Save(res, s.EffectiveSaveDir(), s.Format);
+                _ = IndexAndReload(saved);
+            }
+        }
+    }
+
+    private async Task IndexAndReload(string path)
+    {
+        await ScreenshotMemory.Shared.RecordAsync(path, DateTimeOffset.Now);
+        if (InvokeRequired) BeginInvoke(Reload); else Reload();
+    }
+
+    /// <summary>선택 항목의 OCR 텍스트를 클립보드로(이미 색인돼 재인식 불필요).</summary>
+    private void CopyTextSelected()
+    {
+        var e = SelectedEntry();
+        if (e is null || string.IsNullOrWhiteSpace(e.Text)) return;
+        try { Clipboard.SetText(e.Text); } catch { /* 무시 */ }
+    }
+
+    private void RevealInFolder()
+    {
+        var path = SelectedPath();
+        if (path is null) return;
+        try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\""); }
+        catch { /* 무시 */ }
+    }
 
     private void OpenSelected()
     {
@@ -226,6 +286,7 @@ public sealed class SearchWindow : Form
         {
             _debounce.Dispose();
             _thumbs.Dispose();
+            _itemMenu.Dispose();
         }
         base.Dispose(disposing);
     }

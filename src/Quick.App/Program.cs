@@ -309,35 +309,62 @@ internal sealed class QuickTrayContext : ApplicationContext
 
     // MARK: 캡처 (Windows엔 스샷→폴더 흐름이 약해서 직접 제공)
 
-    private void CaptureRegion()
+    private async void CaptureRegion()
     {
         if (_capturing) return;   // 오버레이가 떠 있는 동안 핫키 재진입 → 오버레이 중첩 방지
         _capturing = true;
         try
         {
+            await DelayIfNeeded();
             var frozen = CaptureService.CaptureFullScreen();
             using var overlay = new RegionOverlay(frozen);
             var result = overlay.ShowDialog() == DialogResult.OK ? overlay.Result : null;
             frozen.Dispose();
             if (result is not null)
             {
-                SaveAndIndex(result);
+                HandleCapture(result);
                 result.Dispose();
             }
         }
         finally { _capturing = false; }
     }
 
-    private void CaptureFull()
+    private async void CaptureFull()
     {
         if (_capturing) return;
         _capturing = true;
         try
         {
+            await DelayIfNeeded();
             using var bmp = CaptureService.CaptureFullScreen();
-            SaveAndIndex(bmp);
+            HandleCapture(bmp);
         }
         finally { _capturing = false; }
+    }
+
+    private static async Task DelayIfNeeded()
+    {
+        var d = Settings.Current.CaptureDelaySeconds;
+        if (d > 0) await Task.Delay(d * 1000);   // 메뉴·툴팁 캡처용 지연
+    }
+
+    /// <summary>설정에 따라 편집기를 열거나(저장 시 색인) 바로 저장·색인.</summary>
+    private void HandleCapture(Bitmap bmp)
+    {
+        if (Settings.Current.OpenEditorAfterCapture)
+        {
+            using var editor = new MarkupForm(bmp);
+            if (editor.ShowDialog() == DialogResult.OK && editor.RenderedResult is not null)
+            {
+                SaveAndIndex(editor.RenderedResult);
+                editor.RenderedResult.Dispose();
+            }
+            // '복사'만 하고 닫으면 저장하지 않음(캡처도구와 동일)
+        }
+        else
+        {
+            SaveAndIndex(bmp);
+        }
     }
 
     private void SaveAndIndex(Bitmap bmp)
